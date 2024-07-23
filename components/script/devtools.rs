@@ -19,6 +19,7 @@ use crate::dom::bindings::codegen::Bindings::CSSStyleDeclarationBinding::CSSStyl
 use crate::dom::bindings::codegen::Bindings::DOMRectBinding::DOMRectMethods;
 use crate::dom::bindings::codegen::Bindings::DocumentBinding::DocumentMethods;
 use crate::dom::bindings::codegen::Bindings::ElementBinding::ElementMethods;
+use crate::dom::bindings::codegen::Bindings::NodeBinding::Node_Binding::NodeMethods;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::conversions::{jsstring_to_str, ConversionResult, FromJSValConvertible};
 use crate::dom::bindings::inheritance::Castable;
@@ -114,6 +115,20 @@ fn find_node_by_unique_id(
             .traverse_preorder(ShadowIncluding::Yes)
             .find(|candidate| candidate.unique_id() == node_id)
     })
+}
+
+pub fn handle_get_node_value(
+    documents: &Documents,
+    pipeline: PipelineId,
+    node_id: String,
+    reply: IpcSender<Option<String>>,
+) {
+    match find_node_by_unique_id(documents, pipeline, &node_id) {
+        None => reply.send(None).unwrap(),
+        Some(node) => {
+            reply.send(node.GetNodeValue().map(|v| v.into())).unwrap();
+        },
+    };
 }
 
 pub fn handle_get_children(
