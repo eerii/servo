@@ -116,8 +116,9 @@ impl Actor for NodeActor {
                     .send(GetDocumentElement(self.pipeline, tx))
                     .unwrap();
                 let doc_elem_info = rx.recv().map_err(|_| ())?.ok_or(())?;
-                let node =
-                    doc_elem_info.encode(registry, true, self.script_chan.clone(), self.pipeline);
+                let node = doc_elem_info
+                    .encode(registry, true, self.script_chan.clone(), self.pipeline)
+                    .ok_or(())?;
 
                 let msg = GetUniqueSelectorReply {
                     from: self.name(),
@@ -139,7 +140,7 @@ pub trait NodeInfoToProtocol {
         display: bool,
         script_chan: IpcSender<DevtoolScriptControlMsg>,
         pipeline: PipelineId,
-    ) -> NodeActorMsg;
+    ) -> Option<NodeActorMsg>;
 }
 
 impl NodeInfoToProtocol for NodeInfo {
@@ -149,7 +150,7 @@ impl NodeInfoToProtocol for NodeInfo {
         display: bool,
         script_chan: IpcSender<DevtoolScriptControlMsg>,
         pipeline: PipelineId,
-    ) -> NodeActorMsg {
+    ) -> Option<NodeActorMsg> {
         let actor = if !actors.script_actor_registered(self.unique_id.clone()) {
             let name = actors.new_name("node");
             let node_actor = NodeActor {
@@ -182,11 +183,10 @@ impl NodeInfoToProtocol for NodeInfo {
                     .unwrap();
                 let mut children = rx.recv().unwrap().unwrap(); // TODO: unwrap
 
-                if let Some(child) = children.pop() {
-                    let msg = child.encode(actors, true, script_chan.clone(), pipeline);
-                    if msg.node_type == 3 {
-                        return Some(Box::new(msg));
-                    }
+                let child = children.pop()?;
+                let msg = child.encode(actors, true, script_chan.clone(), pipeline)?;
+                if msg.node_type == 3 {
+                    return Some(Box::new(msg));
                 }
             }
             None
@@ -197,8 +197,13 @@ impl NodeInfoToProtocol for NodeInfo {
         let node_value = rx.recv().unwrap();
 
         // TODO: Filter whitespace
+        if self.node_type == 3 &&
+            (node_value.is_none() || node_value.clone().unwrap().trim().is_empty())
+        {
+            return None;
+        }
 
-        NodeActorMsg {
+        Some(NodeActorMsg {
             actor,
             base_uri: self.base_uri,
             causes_overflow: false,
@@ -224,6 +229,6 @@ impl NodeInfoToProtocol for NodeInfo {
             parent: actors.script_to_actor(self.parent.clone()),
             shadow_root_mode: None,
             traits: HashMap::new(),
-        }
+        })
     }
 }

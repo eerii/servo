@@ -120,7 +120,7 @@ impl Actor for WalkerActor {
                     has_last: true,
                     nodes: children
                         .into_iter()
-                        .map(|child| {
+                        .filter_map(|child| {
                             child.encode(registry, true, self.script_chan.clone(), self.pipeline)
                         })
                         .collect(),
@@ -140,8 +140,9 @@ impl Actor for WalkerActor {
                     .send(GetDocumentElement(self.pipeline, tx))
                     .map_err(|_| ())?;
                 let doc_elem_info = rx.recv().map_err(|_| ())?.ok_or(())?;
-                let node =
-                    doc_elem_info.encode(registry, true, self.script_chan.clone(), self.pipeline);
+                let node = doc_elem_info
+                    .encode(registry, true, self.script_chan.clone(), self.pipeline)
+                    .ok_or(())?;
 
                 let msg = DocumentElementReply {
                     from: self.name(),
@@ -232,7 +233,10 @@ fn find_child(
     let children = rx.recv().unwrap().ok_or(vec![])?;
 
     for child in children {
-        let msg = child.encode(registry, true, script_chan.clone(), pipeline);
+        let Some(msg) = child.encode(registry, true, script_chan.clone(), pipeline) else {
+            continue;
+        };
+
         if msg.display_name == selector {
             hierarchy.push(msg);
             return Ok(hierarchy);
