@@ -227,6 +227,7 @@ pub fn handle_modify_attribute(
         .downcast::<Element>()
         .expect("should be getting layout of element");
 
+    // TODO: This is crashing servo
     for modification in modifications {
         match modification.new_value {
             Some(string) => {

@@ -1619,6 +1619,7 @@ impl Element {
             let name = attr.local_name().clone();
             let namespace = attr.namespace().clone();
             let old_value = DOMString::from(&**attr.value());
+            log::error!("{} {} {}", name, namespace, old_value);
             let mutation = Mutation::Attribute {
                 name: name.clone(),
                 namespace: namespace.clone(),

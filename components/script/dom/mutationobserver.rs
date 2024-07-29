@@ -133,6 +133,7 @@ impl MutationObserver {
 
     /// <https://dom.spec.whatwg.org/#queueing-a-mutation-record>
     pub fn queue_a_mutation_record(target: &Node, attr_type: Mutation) {
+        // TODO: target.global() is crashing!!!
         if !target.global().as_window().get_exists_mut_observer() {
             return;
         }

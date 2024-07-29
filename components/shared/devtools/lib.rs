@@ -127,6 +127,7 @@ pub struct NodeInfo {
     pub node_name: String,
     pub num_children: usize,
     pub is_top_level_document: bool,
+    pub attrs: Vec<AttrInfo>,
 }
 
 pub struct StartedTimelineMarker {

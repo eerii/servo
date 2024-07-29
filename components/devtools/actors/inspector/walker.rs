@@ -94,6 +94,8 @@ impl Actor for WalkerActor {
     ///
     /// - `querySelector`: Recursively looks for the specified selector in the tree, reutrning the
     /// node and its ascendents
+    ///
+    /// TODO: getMutations
     fn handle_message(
         &self,
         registry: &ActorRegistry,

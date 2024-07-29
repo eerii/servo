@@ -27,10 +27,17 @@ struct GetUniqueSelectorReply {
     value: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Serialize)]
+struct NodeAttribute {
+    name: String,
+    value: String,
+}
+
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeActorMsg {
     pub actor: String,
+    attrs: Vec<NodeAttribute>,
     #[serde(rename = "baseURI")]
     base_uri: String,
     causes_overflow: bool,
@@ -170,16 +177,12 @@ impl NodeInfoToProtocol for NodeInfo {
         // Check for inline nodes
         let inline_text_child = (|| {
             // TODO: Get text content?
+            // TODO: Scripts should not be inline
 
             if self.num_children == 1 {
                 let (tx, rx) = ipc::channel().unwrap();
                 script_chan
-                    .send(GetChildren(
-                        // TODO: Filter whitespace
-                        pipeline,
-                        name.clone(),
-                        tx,
-                    ))
+                    .send(GetChildren(pipeline, name.clone(), tx))
                     .unwrap();
                 let mut children = rx.recv().unwrap().unwrap(); // TODO: unwrap
 
@@ -205,6 +208,14 @@ impl NodeInfoToProtocol for NodeInfo {
 
         Some(NodeActorMsg {
             actor,
+            attrs: self
+                .attrs
+                .into_iter()
+                .map(|attr| NodeAttribute {
+                    name: attr.name,
+                    value: attr.value,
+                })
+                .collect(),
             base_uri: self.base_uri,
             causes_overflow: false,
             container_type: None,
