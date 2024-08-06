@@ -345,7 +345,7 @@ impl CSSStyleDeclaration {
 }
 
 lazy_static! {
-    static ref ENABLED_LONGHAND_PROPERTIES: Vec<LonghandId> = {
+    pub static ref ENABLED_LONGHAND_PROPERTIES: Vec<LonghandId> = {
         // The 'all' shorthand contains all the enabled longhands with 2 exceptions:
         // 'direction' and 'unicode-bidi', so these must be added afterward.
         let mut enabled_longhands: Vec<LonghandId> = ShorthandId::All.longhands().collect();
