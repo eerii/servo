@@ -13,6 +13,7 @@ use devtools_traits::{
 use ipc_channel::ipc::IpcSender;
 use js::jsval::UndefinedValue;
 use js::rust::ToString;
+use style::properties::{LonghandId, ShorthandId};
 use uuid::Uuid;
 
 use crate::dom::bindings::codegen::Bindings::CSSStyleDeclarationBinding::CSSStyleDeclarationMethods;
@@ -392,4 +393,9 @@ pub fn handle_reload(documents: &Documents, id: PipelineId) {
     if let Some(win) = documents.find_window(id) {
         win.Location().reload_without_origin_check();
     }
+}
+
+pub fn handle_get_css_database() {
+    // TODO: Build css database
+    ShorthandId::All.longhands().map(|l| {}).collect()
 }
