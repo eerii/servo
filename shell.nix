@@ -69,11 +69,15 @@ stdenv.mkDerivation (androidEnvironment // {
     xorg.libxcb
     xorg.libX11
 
-    gst_all_1.gstreamer
-    gst_all_1.gst-plugins-base
-    gst_all_1.gst-plugins-good
-    gst_all_1.gst-plugins-bad
-    gst_all_1.gst-plugins-ugly
+    # gst_all_1.gstreamer
+    # gst_all_1.gst-plugins-base
+    # gst_all_1.gst-plugins-good
+    # gst_all_1.gst-plugins-bad
+    # gst_all_1.gst-plugins-ugly
+    openssl
+    libdrm libGL
+    xorg.libXau xorg.libXdmcp xorg.libXext xorg.libXfixes
+    wayland wayland-scanner
 
     rustup
     taplo
@@ -128,6 +132,8 @@ stdenv.mkDerivation (androidEnvironment // {
     # [WARN  script::dom::gpu] Could not get GPUAdapter ("NotFound")
     # TLA Err: Error: Couldn't request WebGPU adapter.
     vulkan-loader
+
+    wayland wayland-scanner
   ];
 
   shellHook = ''
@@ -179,5 +185,12 @@ stdenv.mkDerivation (androidEnvironment // {
       repo_root=$(git rev-parse --show-toplevel)
       export RUSTUP_HOME=$repo_root/.rustup
     fi
+
+    # System-deps needs `PKG_CONFIG_PATH` to correctly set the overriden binary downloads
+    # This needs to be fixed but as a patch for now
+    export PKG_CONFIG_PATH="$PKG_CONFIG_PATH_FOR_TARGET"
+    unset NIX_PKG_CONFIG_WRAPPER_TARGET_TARGET_x86_64_unknown_linux_gnu
+    unset PKG_CONFIG_PATH_FOR_TARGET
+    unset PKG_CONFIG_FOR_TARGET
   '';
 })

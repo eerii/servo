@@ -56,14 +56,14 @@ freetype-sys = "0.20"
 fxhash = "0.2"
 getopts = "0.2.11"
 gleam = "0.15"
-glib = "0.19"
+glib = { git = "https://github.com/gtk-rs/gtk-rs-core", branch = "main" }
 glow = "0.16"
-gstreamer = { version = "0.22", features = ["v1_18"] }
-gstreamer-base = "0.22"
-gstreamer-gl = "0.22"
-gstreamer-gl-sys = "0.22"
-gstreamer-sys = "0.22"
-gstreamer-video = "0.22"
+gstreamer = { git = "https://gitlab.freedesktop.org/eerii/gstreamer-rs", branch = "binaries", features = ["v1_18"] }
+gstreamer-base = { git = "https://gitlab.freedesktop.org/eerii/gstreamer-rs", branch = "binaries" }
+gstreamer-gl = { git = "https://gitlab.freedesktop.org/eerii/gstreamer-rs", branch = "binaries" }
+gstreamer-gl-sys = { git = "https://gitlab.freedesktop.org/eerii/gstreamer-rs", branch = "binaries" }
+gstreamer-sys = { git = "https://gitlab.freedesktop.org/eerii/gstreamer-rs", branch = "binaries" }
+gstreamer-video = { git = "https://gitlab.freedesktop.org/eerii/gstreamer-rs", branch = "binaries" }
 headers = "0.3"
 hitrace = "0.1.4"
 html5ever = "0.29"
@@ -111,9 +111,9 @@ selectors = { git = "https://github.com/servo/stylo", branch = "2024-12-04" }
 serde = "1.0.216"
 serde_bytes = "0.11"
 serde_json = "1.0"
-servo-media = { git = "https://github.com/servo/media" }
-servo-media-dummy = { git = "https://github.com/servo/media" }
-servo-media-gstreamer = { git = "https://github.com/servo/media" }
+servo-media = { git = "https://github.com/eerii/media" }
+servo-media-dummy = { git = "https://github.com/eerii/media" }
+servo-media-gstreamer = { git = "https://github.com/eerii/media" }
 servo_arc = { git = "https://github.com/servo/stylo", branch = "2024-12-04", features = ["servo"] }
 servo_atoms = { git = "https://github.com/servo/stylo", branch = "2024-12-04" }
 smallbitvec = "2.5.3"
@@ -193,6 +193,7 @@ lto = "thin"
 codegen-units = 1
 
 [patch.crates-io]
+system-deps = { git = "https://github.com/eerii/system-deps", branch = "binary" }
 # If you need to temporarily test Servo with a local fork of some upstream
 # crate, add that here. Use the form:
 #
