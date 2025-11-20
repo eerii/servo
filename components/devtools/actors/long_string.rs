@@ -33,6 +33,8 @@ struct SubstringReply {
 }
 
 impl Actor for LongStringActor {
+    const BASE_NAME: &str = "long-string";
+
     fn name(&self) -> String {
         self.name.clone()
     }

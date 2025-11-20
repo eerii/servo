@@ -63,9 +63,12 @@ impl ResourceAvailable for WorkerActor {
 }
 
 impl Actor for WorkerActor {
+    const BASE_NAME: &str = "worker";
+
     fn name(&self) -> String {
         self.name.clone()
     }
+
     fn handle_message(
         &self,
         mut request: ClientRequest,

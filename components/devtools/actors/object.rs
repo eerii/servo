@@ -33,6 +33,8 @@ pub struct ObjectActor {
 }
 
 impl Actor for ObjectActor {
+    const BASE_NAME: &str = "object";
+
     fn name(&self) -> String {
         self.name.clone()
     }

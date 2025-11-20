@@ -108,6 +108,8 @@ pub struct NodeActor {
 }
 
 impl Actor for NodeActor {
+    const BASE_NAME: &str = "node";
+
     fn name(&self) -> String {
         self.name.clone()
     }

@@ -38,6 +38,8 @@ pub struct TargetConfigurationActor {
 }
 
 impl Actor for TargetConfigurationActor {
+    const BASE_NAME: &str = "target-configuration";
+
     fn name(&self) -> String {
         self.name.clone()
     }

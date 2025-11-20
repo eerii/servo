@@ -13,6 +13,8 @@ pub struct PauseActor {
 }
 
 impl Actor for PauseActor {
+    const BASE_NAME: &str = "pause";
+
     fn name(&self) -> String {
         self.name.clone()
     }

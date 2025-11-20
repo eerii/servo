@@ -21,6 +21,8 @@ impl PreferenceActor {
 }
 
 impl Actor for PreferenceActor {
+    const BASE_NAME: &str = "pref";
+
     fn name(&self) -> String {
         self.name.clone()
     }
