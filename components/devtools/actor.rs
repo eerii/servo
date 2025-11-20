@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use base::cross_process_instant::CrossProcessInstant;
 use base::id::PipelineId;
 use log::{debug, warn};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::StreamId;
@@ -45,10 +46,59 @@ impl ActorError {
     }
 }
 
+/// We can't have a constant in the main trait since it wouldn't be dyn compatible
+/// <https://doc.rust-lang.org/nightly/reference/items/traits.html#r-items.traits.dyn-compatible.associated-consts>
+///
+/// # Examples
+///
+/// ```
+/// pub struct SomeActor {}
+///
+/// impl ActorConst for SomeActor {
+///     const BASE_NAME = "some";
+/// }
+/// ```
+pub(crate) trait Actor {
+    fn handle_message(
+        &self,
+        // name: &str,
+        request: ClientRequest,
+        registry: &ActorRegistry,
+        msg_type: &str,
+        msg: &Map<String, Value>,
+        stream_id: StreamId,
+    ) -> Result<(), ActorError>;
+
+    fn name(&self) -> String;
+
+    fn cleanup(&self, _id: StreamId) {}
+}
+
+impl<T: Any + Actor> ActorDyn for T {
+    fn handle_message(
+        &self,
+        request: ClientRequest,
+        registry: &ActorRegistry,
+        msg_type: &str,
+        msg: &Map<String, Value>,
+        stream_id: StreamId,
+    ) -> Result<(), ActorError> {
+        self.handle_message(request, registry, msg_type, msg, stream_id)
+    }
+
+    // TODO: Remove
+    fn name(&self) -> String {
+        self.name()
+    }
+
+    fn cleanup(&self, id: StreamId) {
+        self.cleanup(id)
+    }
+}
+
 /// A common trait for all devtools actors that encompasses an immutable name
 /// and the ability to process messages that are directed to particular actors.
-/// TODO: ensure the name is immutable
-pub(crate) trait Actor: Any + ActorAsAny {
+pub(crate) trait ActorDyn: Any + ActorAsAny {
     fn handle_message(
         &self,
         request: ClientRequest,
@@ -57,8 +107,10 @@ pub(crate) trait Actor: Any + ActorAsAny {
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError>;
+
     fn name(&self) -> String;
-    fn cleanup(&self, _id: StreamId) {}
+
+    fn cleanup(&self, _id: StreamId);
 }
 
 pub(crate) trait ActorAsAny {
@@ -66,7 +118,7 @@ pub(crate) trait ActorAsAny {
     fn actor_as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl<T: Actor> ActorAsAny for T {
+impl<T: ActorDyn> ActorAsAny for T {
     fn actor_as_any(&self) -> &dyn Any {
         self
     }
@@ -75,10 +127,33 @@ impl<T: Actor> ActorAsAny for T {
     }
 }
 
+/// An actor that can be directly encoded into a message.
+/// The convention is to use the `Msg` suffix for the message struct.
+///
+/// # Examples
+///
+/// ```
+/// use serde::Serialize;
+///
+/// pub struct SomeActor {}
+///
+/// #[derive(Serialize)]
+/// pub struct SomeActorMsg {}
+///
+/// impl ActorEncodable<SomeActorMsg> for SomeActor {
+///     fn encode(&self) -> SomeActorMsg {
+///         return SomeActorMsg {}
+///     }
+/// }
+/// ```
+pub(crate) trait ActorEncodable<T: Serialize> {
+    fn encode(&self) -> T;
+}
+
 /// A list of known, owned actors.
 pub struct ActorRegistry {
-    actors: HashMap<String, Box<dyn Actor + Send>>,
-    new_actors: RefCell<Vec<Box<dyn Actor + Send>>>,
+    actors: HashMap<String, Box<dyn ActorDyn + Send>>,
+    new_actors: RefCell<Vec<Box<dyn ActorDyn + Send>>>,
     old_actors: RefCell<Vec<String>>,
     script_actors: RefCell<HashMap<String, String>>,
 
@@ -96,14 +171,15 @@ impl ActorRegistry {
     /// Create an empty registry.
     pub fn new() -> ActorRegistry {
         ActorRegistry {
-            actors: HashMap::new(),
-            new_actors: RefCell::new(vec![]),
-            old_actors: RefCell::new(vec![]),
-            script_actors: RefCell::new(HashMap::new()),
-            source_actor_names: RefCell::new(HashMap::new()),
-            inline_source_content: RefCell::new(HashMap::new()),
-            shareable: None,
-            next: Cell::new(0),
+            // TODO: Default?
+            actors: Default::default(),
+            new_actors: Default::default(),
+            old_actors: Default::default(),
+            script_actors: Default::default(),
+            source_actor_names: Default::default(),
+            inline_source_content: Default::default(),
+            shareable: Default::default(),
+            next: Default::default(),
             start_stamp: CrossProcessInstant::now(),
         }
     }
@@ -174,11 +250,11 @@ impl ActorRegistry {
     }
 
     /// Add an actor to the registry of known actors that can receive messages.
-    pub(crate) fn register(&mut self, actor: Box<dyn Actor + Send>) {
+    pub(crate) fn register(&mut self, actor: Box<dyn ActorDyn + Send>) {
         self.actors.insert(actor.name(), actor);
     }
 
-    pub(crate) fn register_later(&self, actor: Box<dyn Actor + Send>) {
+    pub(crate) fn register_later(&self, actor: Box<dyn ActorDyn + Send>) {
         let mut actors = self.new_actors.borrow_mut();
         actors.push(actor);
     }

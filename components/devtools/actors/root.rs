@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncodable, ActorError, ActorRegistry};
 use crate::actors::device::DeviceActor;
 use crate::actors::performance::PerformanceActor;
 use crate::actors::process::{ProcessActor, ProcessActorMsg};
@@ -116,13 +116,13 @@ struct GetProcessResponse {
 }
 
 pub struct RootActor {
-    pub tabs: Vec<String>,
-    pub workers: Vec<String>,
-    pub performance: String,
+    pub active_tab: RefCell<Option<String>>,
     pub device: String,
+    pub performance: String,
     pub preference: String,
     pub process: String,
-    pub active_tab: RefCell<Option<String>>,
+    pub tabs: Vec<String>,
+    pub workers: Vec<String>,
 }
 
 impl Actor for RootActor {
@@ -257,8 +257,8 @@ impl Actor for RootActor {
     }
 }
 
-impl RootActor {
-    pub fn encodable(&self) -> RootActorMsg {
+impl ActorEncodable<RootActorMsg> for RootActor {
+    fn encode(&self) -> RootActorMsg {
         RootActorMsg {
             from: "root".to_owned(),
             application_type: "browser".to_owned(),
@@ -270,7 +270,9 @@ impl RootActor {
             },
         }
     }
+}
 
+impl RootActor {
     fn get_tab_msg_by_browser_id(
         &self,
         registry: &ActorRegistry,

@@ -34,7 +34,7 @@ use resource::{ResourceArrayType, ResourceAvailable};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
-use crate::actor::{Actor, ActorRegistry};
+use crate::actor::{Actor, ActorEncodable, ActorRegistry};
 use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::console::{ConsoleActor, Root};
 use crate::actors::device::DeviceActor;
@@ -159,13 +159,13 @@ impl DevtoolsInstance {
         let preference = PreferenceActor::new(registry.new_name("preference"));
         let process = ProcessActor::new(registry.new_name("process"));
         let root = Box::new(RootActor {
-            tabs: vec![],
-            workers: vec![],
+            active_tab: None.into(),
             device: device.name(),
             performance: performance.name(),
             preference: preference.name(),
             process: process.name(),
-            active_tab: None.into(),
+            tabs: vec![],
+            workers: vec![],
         });
 
         registry.register(root);
@@ -662,7 +662,7 @@ fn allow_devtools_client(stream: &mut TcpStream, embedder: &EmbedderProxy, token
 /// Process the input from a single devtools client until EOF.
 fn handle_client(actors: Arc<Mutex<ActorRegistry>>, mut stream: TcpStream, stream_id: StreamId) {
     log::info!("Connection established to {}", stream.peer_addr().unwrap());
-    let msg = actors.lock().unwrap().find::<RootActor>("root").encodable();
+    let msg = actors.lock().unwrap().find::<RootActor>("root").encode();
     if let Err(error) = stream.write_json_packet(&msg) {
         warn!("Failed to send initial packet from root actor: {error:?}");
         return;
