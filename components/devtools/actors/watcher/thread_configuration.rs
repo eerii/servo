@@ -25,6 +25,8 @@ pub struct ThreadConfigurationActor {
 }
 
 impl Actor for ThreadConfigurationActor {
+    const BASE_NAME: &str = "threadconfiguration";
+
     fn name(&self) -> String {
         self.name.clone()
     }

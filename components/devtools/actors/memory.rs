@@ -29,6 +29,8 @@ pub struct MemoryActor {
 }
 
 impl Actor for MemoryActor {
+    const BASE_NAME: &str = "memory";
+
     fn name(&self) -> String {
         self.name.clone()
     }

@@ -59,6 +59,8 @@ impl ActorError {
 /// }
 /// ```
 pub(crate) trait Actor {
+    const BASE_NAME: &str;
+
     fn handle_message(
         &self,
         // name: &str,

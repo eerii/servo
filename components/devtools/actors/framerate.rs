@@ -23,6 +23,8 @@ pub struct FramerateActor {
 }
 
 impl Actor for FramerateActor {
+    const BASE_NAME: &str = "framerate";
+
     fn name(&self) -> String {
         self.name.clone()
     }

@@ -63,6 +63,8 @@ impl ThreadActor {
 }
 
 impl Actor for ThreadActor {
+    const BASE_NAME: &str = "thread";
+
     fn name(&self) -> String {
         self.name.clone()
     }

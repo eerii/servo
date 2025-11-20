@@ -19,6 +19,8 @@ pub struct NetworkParentActor {
 }
 
 impl Actor for NetworkParentActor {
+    const BASE_NAME: &str = "networkparent";
+
     fn name(&self) -> String {
         self.name.clone()
     }

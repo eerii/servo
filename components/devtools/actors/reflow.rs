@@ -15,6 +15,8 @@ pub struct ReflowActor {
 }
 
 impl Actor for ReflowActor {
+    const BASE_NAME: &str = "reflow";
+
     fn name(&self) -> String {
         self.name.clone()
     }

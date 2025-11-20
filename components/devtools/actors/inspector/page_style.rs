@@ -96,6 +96,8 @@ pub struct PageStyleActor {
 }
 
 impl Actor for PageStyleActor {
+    const BASE_NAME: &str = "pagestyle";
+
     fn name(&self) -> String {
         self.name.clone()
     }

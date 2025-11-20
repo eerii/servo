@@ -66,6 +66,8 @@ pub struct InspectorActor {
 }
 
 impl Actor for InspectorActor {
+    const BASE_NAME: &str = "inspector";
+
     fn name(&self) -> String {
         self.name.clone()
     }
