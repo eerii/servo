@@ -160,6 +160,8 @@ impl ResourceAvailable for BrowsingContextActor {
 }
 
 impl Actor for BrowsingContextActor {
+    const BASE_NAME: &str = "target";
+
     fn name(&self) -> String {
         self.name.clone()
     }

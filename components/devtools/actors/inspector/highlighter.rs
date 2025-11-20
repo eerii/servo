@@ -33,6 +33,8 @@ struct ShowReply {
 }
 
 impl Actor for HighlighterActor {
+    const BASE_NAME: &str = "highlighter";
+
     fn name(&self) -> String {
         self.name.clone()
     }

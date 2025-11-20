@@ -74,6 +74,8 @@ pub struct TabDescriptorActor {
 }
 
 impl Actor for TabDescriptorActor {
+    const BASE_NAME: &str = "tab-descriptor";
+
     fn name(&self) -> String {
         self.name.clone()
     }

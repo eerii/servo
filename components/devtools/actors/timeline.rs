@@ -183,6 +183,8 @@ impl TimelineActor {
 }
 
 impl Actor for TimelineActor {
+    const BASE_NAME: &str = "timeline";
+
     fn name(&self) -> String {
         self.name.clone()
     }

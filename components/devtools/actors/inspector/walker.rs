@@ -100,6 +100,8 @@ struct NewMutationsNotification {
 }
 
 impl Actor for WalkerActor {
+    const BASE_NAME: &str = "walker";
+
     fn name(&self) -> String {
         self.name.clone()
     }

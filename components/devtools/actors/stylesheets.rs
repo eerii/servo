@@ -21,6 +21,8 @@ pub struct StyleSheetsActor {
 }
 
 impl Actor for StyleSheetsActor {
+    const BASE_NAME: &str = "stylesheets";
+
     fn name(&self) -> String {
         self.name.clone()
     }
