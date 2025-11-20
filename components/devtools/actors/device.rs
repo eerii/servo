@@ -39,9 +39,12 @@ pub struct DeviceActor {
 }
 
 impl Actor for DeviceActor {
+    const BASE_NAME: &str = "device";
+
     fn name(&self) -> String {
         self.name.clone()
     }
+
     fn handle_message(
         &self,
         request: ClientRequest,

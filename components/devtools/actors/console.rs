@@ -298,6 +298,8 @@ impl ConsoleActor {
 }
 
 impl Actor for ConsoleActor {
+    const BASE_NAME: &str = "console";
+
     fn name(&self) -> String {
         self.name.clone()
     }

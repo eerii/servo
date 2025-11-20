@@ -175,6 +175,8 @@ impl SourceActor {
 }
 
 impl Actor for SourceActor {
+    const BASE_NAME: &str = "source";
+
     fn name(&self) -> String {
         self.name.clone()
     }

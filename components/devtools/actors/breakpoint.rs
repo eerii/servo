@@ -11,6 +11,8 @@ pub struct BreakpointListActor {
 }
 
 impl Actor for BreakpointListActor {
+    const BASE_NAME: &str = "breakpoint-list";
+
     fn name(&self) -> String {
         self.name.clone()
     }

@@ -126,8 +126,10 @@ pub struct RootActor {
 }
 
 impl Actor for RootActor {
+    const BASE_NAME: &str = "root";
+
     fn name(&self) -> String {
-        "root".to_owned()
+        Self::BASE_NAME.into()
     }
 
     fn handle_message(

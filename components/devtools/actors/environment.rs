@@ -63,6 +63,8 @@ pub struct EnvironmentActor {
 }
 
 impl Actor for EnvironmentActor {
+    const BASE_NAME: &str = "environment";
+
     fn name(&self) -> String {
         self.name.clone()
     }

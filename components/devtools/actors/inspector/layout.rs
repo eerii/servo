@@ -29,6 +29,8 @@ pub struct GetCurrentFlexboxReply {
 }
 
 impl Actor for LayoutInspectorActor {
+    const BASE_NAME: &str = "layout";
+
     fn name(&self) -> String {
         self.name.clone()
     }

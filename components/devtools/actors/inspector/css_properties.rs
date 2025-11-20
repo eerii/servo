@@ -27,6 +27,8 @@ struct GetCssDatabaseReply<'a> {
 }
 
 impl Actor for CssPropertiesActor {
+    const BASE_NAME: &str = "css-properties";
+
     fn name(&self) -> String {
         self.name.clone()
     }

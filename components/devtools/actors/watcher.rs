@@ -202,6 +202,8 @@ pub struct WillNavigateMessage {
 }
 
 impl Actor for WatcherActor {
+    const BASE_NAME: &str = "watcher";
+
     fn name(&self) -> String {
         self.name.clone()
     }

@@ -50,6 +50,7 @@ impl ActorError {
 /// and the ability to process messages that are directed to particular actors.
 /// TODO: ensure the name is immutable
 pub(crate) trait Actor: Any + Send {
+    const BASE_NAME: &str;
     fn handle_message(
         &self,
         request: ClientRequest,

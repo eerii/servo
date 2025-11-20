@@ -57,6 +57,8 @@ pub struct AccessibilityActor {
 }
 
 impl Actor for AccessibilityActor {
+    const BASE_NAME: &str = "accessibility";
+
     fn name(&self) -> String {
         self.name.clone()
     }

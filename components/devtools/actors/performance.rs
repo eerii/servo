@@ -51,6 +51,8 @@ struct SuccessMsg {
 enum Error {}
 
 impl Actor for PerformanceActor {
+    const BASE_NAME: &str = "perf";
+
     fn name(&self) -> String {
         self.name.clone()
     }

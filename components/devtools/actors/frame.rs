@@ -58,6 +58,8 @@ pub struct FrameActor {
 }
 
 impl Actor for FrameActor {
+    const BASE_NAME: &str = "frame";
+
     fn name(&self) -> String {
         self.name.clone()
     }

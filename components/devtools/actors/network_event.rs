@@ -244,6 +244,8 @@ struct GetSecurityInfoReply {
 }
 
 impl Actor for NetworkEventActor {
+    const BASE_NAME: &str = "network-event";
+
     fn name(&self) -> String {
         self.name.clone()
     }

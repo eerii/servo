@@ -35,6 +35,8 @@ pub struct ProcessActor {
 }
 
 impl Actor for ProcessActor {
+    const BASE_NAME: &str = "process";
+
     fn name(&self) -> String {
         self.name.clone()
     }

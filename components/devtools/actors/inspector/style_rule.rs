@@ -85,6 +85,8 @@ pub struct StyleRuleActor {
 }
 
 impl Actor for StyleRuleActor {
+    const BASE_NAME: &str = "style-rule";
+
     fn name(&self) -> String {
         self.name.clone()
     }
