@@ -311,7 +311,7 @@ impl DevtoolsInstance {
     fn handle_framerate_tick(&self, actor_name: String, tick: f64) {
         let mut actors = self.actors.lock().unwrap();
         let framerate_actor = actors.find_mut::<FramerateActor>(&actor_name);
-        framerate_actor.add_tick(tick);
+        framerate_actor.add_tick(actor_name, tick);
     }
 
     fn handle_navigate(&self, browsing_context_id: BrowsingContextId, state: NavigationState) {
@@ -332,7 +332,7 @@ impl DevtoolsInstance {
                 &mut id_map,
             );
         };
-        actor.navigate(state, &mut id_map);
+        actor.navigate(actor_name.clone(), state, &mut id_map);
     }
 
     // We need separate actor representations for each script global that exists;

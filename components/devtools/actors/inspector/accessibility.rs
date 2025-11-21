@@ -85,7 +85,7 @@ impl Actor for AccessibilityActor {
         match msg_type {
             "bootstrap" => {
                 let msg = BootstrapReply {
-                    from: self.name(),
+                    from: name,
                     state: BootstrapState { enabled: false },
                 };
                 request.reply_final(&msg)?
@@ -94,14 +94,14 @@ impl Actor for AccessibilityActor {
                 // TODO: Create actual simulator
                 let simulator = registry.new_name("simulator");
                 let msg = GetSimulatorReply {
-                    from: self.name(),
+                    from: name,
                     simulator: ActorMsg { actor: simulator },
                 };
                 request.reply_final(&msg)?
             },
             "getTraits" => {
                 let msg = GetTraitsReply {
-                    from: self.name(),
+                    from: name,
                     traits: AccessibilityTraits {
                         tabbing_order: true,
                     },
@@ -112,7 +112,7 @@ impl Actor for AccessibilityActor {
                 // TODO: Create actual accessible walker
                 let walker = registry.new_name("accesiblewalker");
                 let msg = GetWalkerReply {
-                    from: self.name(),
+                    from: name,
                     walker: ActorMsg { actor: walker },
                 };
                 request.reply_final(&msg)?

@@ -39,7 +39,7 @@ impl Actor for NetworkParentActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "setSaveRequestAndResponseBodies" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -53,7 +53,7 @@ impl NetworkParentActor {
         Self { name }
     }
 
-    pub fn encodable(&self) -> NetworkParentActorMsg {
-        NetworkParentActorMsg { actor: self.name() }
+    pub fn encode(&self, actor: String) -> NetworkParentActorMsg {
+        NetworkParentActorMsg { actor }
     }
 }

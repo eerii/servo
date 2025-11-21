@@ -38,7 +38,7 @@ impl Actor for StyleSheetsActor {
         match msg_type {
             "getStyleSheets" => {
                 let msg = GetStyleSheetsReply {
-                    from: self.name(),
+                    from: name,
                     style_sheets: vec![],
                 };
                 request.reply_final(&msg)?

@@ -81,7 +81,7 @@ impl Actor for ThreadActor {
         match msg_type {
             "attach" => {
                 let msg = ThreadAttached {
-                    from: self.name(),
+                    from: name.clone(),
                     type_: "paused".to_owned(),
                     actor: registry.new_name("pause"),
                     frame: 0,
@@ -94,34 +94,34 @@ impl Actor for ThreadActor {
                     },
                 };
                 request.write_json_packet(&msg)?;
-                request.reply_final(&EmptyReplyMsg { from: self.name() })?
+                request.reply_final(&EmptyReplyMsg { from: name })?
             },
 
             "resume" => {
                 let msg = ThreadResumedReply {
-                    from: self.name(),
+                    from: name.clone(),
                     type_: "resumed".to_owned(),
                 };
                 request.write_json_packet(&msg)?;
-                request.reply_final(&EmptyReplyMsg { from: self.name() })?
+                request.reply_final(&EmptyReplyMsg { from: name })?
             },
 
             "interrupt" => {
                 let msg = ThreadInterruptedReply {
-                    from: self.name(),
+                    from: name.clone(),
                     type_: "interrupted".to_owned(),
                 };
                 request.write_json_packet(&msg)?;
-                request.reply_final(&EmptyReplyMsg { from: self.name() })?
+                request.reply_final(&EmptyReplyMsg { from: name })?
             },
 
-            "reconfigure" => request.reply_final(&EmptyReplyMsg { from: self.name() })?,
+            "reconfigure" => request.reply_final(&EmptyReplyMsg { from: name })?,
 
             // Client has attached to the thread and wants to load script sources.
             // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#loading-script-sources>
             "sources" => {
                 let msg = SourcesReply {
-                    from: self.name(),
+                    from: name,
                     sources: self.source_manager.source_forms(registry),
                 };
                 request.reply_final(&msg)?

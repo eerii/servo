@@ -67,18 +67,15 @@ impl Actor for HighlighterActor {
                     // TODO: For some reason, the client initially asks us to highlight
                     // the inspector? Investigate what this is supposed to mean.
                     let msg = ShowReply {
-                        from: self.name(),
+                        from: name,
                         value: false,
                     };
                     return request.reply_final(&msg);
                 }
 
-                self.instruct_script_thread_to_highlight_node(
-                    Some(node_actor_name.to_owned()),
-                    registry,
-                );
+                self.instruct_script_thread_to_highlight_node(Some(node_actor_name), registry);
                 let msg = ShowReply {
-                    from: self.name(),
+                    from: name,
                     value: true,
                 };
                 request.reply_final(&msg)?
@@ -87,7 +84,7 @@ impl Actor for HighlighterActor {
             "hide" => {
                 self.instruct_script_thread_to_highlight_node(None, registry);
 
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
 
@@ -100,7 +97,7 @@ impl Actor for HighlighterActor {
 impl HighlighterActor {
     fn instruct_script_thread_to_highlight_node(
         &self,
-        node_actor: Option<String>,
+        node_actor: Option<&str>,
         registry: &ActorRegistry,
     ) {
         let node_id = node_actor.map(|node_actor| registry.actor_to_script(node_actor));

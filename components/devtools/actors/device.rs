@@ -57,7 +57,7 @@ impl Actor for DeviceActor {
         match msg_type {
             "getDescription" => {
                 let msg = GetDescriptionReply {
-                    from: self.name(),
+                    from: name,
                     value: SystemInfo {
                         apptype: "servo".to_string(),
                         version: env!("CARGO_PKG_VERSION").to_string(),

@@ -34,7 +34,7 @@ pub(crate) fn handle_network_event(
         NetworkEvent::HttpRequest(httprequest) => {
             actor.add_request(httprequest);
 
-            let event_actor = actor.event_actor();
+            let event_actor = actor.event_actor(netevent_actor_name.clone());
             let resource_updates = actor.resource_updates();
             let watcher_actor = actors.find::<WatcherActor>(&watcher_name);
 

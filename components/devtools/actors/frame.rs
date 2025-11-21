@@ -81,7 +81,7 @@ impl Actor for FrameActor {
                     parent: None,
                 };
                 let msg = FrameEnvironmentReply {
-                    from: self.name(),
+                    from: name,
                     environment: environment.encode(registry),
                 };
                 registry.register_later(environment);

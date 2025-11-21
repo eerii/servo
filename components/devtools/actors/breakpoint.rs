@@ -38,15 +38,15 @@ impl Actor for BreakpointListActor {
             // Seems to be infallible, unlike the thread actor’s `setBreakpoint`.
             // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#breakpoints>
             "setBreakpoint" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "setActiveEventBreakpoints" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "removeBreakpoint" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -60,7 +60,7 @@ impl BreakpointListActor {
         Self { name }
     }
 
-    pub fn encodable(&self) -> BreakpointListActorMsg {
-        BreakpointListActorMsg { actor: self.name() }
+    pub fn encode(&self, actor: String) -> BreakpointListActorMsg {
+        BreakpointListActorMsg { actor }
     }
 }

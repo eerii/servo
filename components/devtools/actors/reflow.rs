@@ -36,7 +36,7 @@ impl Actor for ReflowActor {
         match msg_type {
             "start" => {
                 // TODO: Create an observer on "reflows" events
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),

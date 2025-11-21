@@ -278,7 +278,7 @@ impl Actor for NetworkEventActor {
                 }
 
                 let msg = GetRequestHeadersReply {
-                    from: self.name(),
+                    from: name,
                     headers,
                     header_size: headers_size,
                     raw_headers: raw_headers_string,
@@ -292,14 +292,14 @@ impl Actor for NetworkEventActor {
                     .map(|msg| msg.cookies.clone())
                     .unwrap_or_default();
                 let msg = GetRequestCookiesReply {
-                    from: self.name(),
+                    from: name,
                     cookies,
                 };
                 request.reply_final(&msg)?
             },
             "getRequestPostData" => {
                 let msg = GetRequestPostDataReply {
-                    from: self.name(),
+                    from: name,
                     post_data: self.request_body.clone(),
                     post_data_discarded: self.request_body.is_none(),
                 };
@@ -322,7 +322,7 @@ impl Actor for NetworkEventActor {
                         raw_headers_string.push_str("\r\n");
                     }
                     let msg = GetResponseHeadersReply {
-                        from: self.name(),
+                        from: name,
                         headers,
                         header_size: headers_size,
                         raw_headers: raw_headers_string,
@@ -340,7 +340,7 @@ impl Actor for NetworkEventActor {
                     .map(|msg| msg.cookies.clone())
                     .unwrap_or_default();
                 let msg = GetResponseCookiesReply {
-                    from: self.name(),
+                    from: name,
                     cookies,
                 };
                 request.reply_final(&msg)?
@@ -399,7 +399,7 @@ impl Actor for NetworkEventActor {
                     }
                 });
                 let msg = GetResponseContentReply {
-                    from: self.name(),
+                    from: name,
                     content: content_obj,
                     content_discarded: self.response_body.is_none(),
                 };
@@ -412,7 +412,7 @@ impl Actor for NetworkEventActor {
                 let total = timings_obj.connect + timings_obj.send;
                 // TODO: Send the correct values for all these fields.
                 let msg = GetEventTimingsReply {
-                    from: self.name(),
+                    from: name,
                     timings: timings_obj,
                     total_time: total,
                 };
@@ -421,7 +421,7 @@ impl Actor for NetworkEventActor {
             "getSecurityInfo" => {
                 // TODO: Send the correct values for securityInfo.
                 let msg = GetSecurityInfoReply {
-                    from: self.name(),
+                    from: name,
                     security_info: SecurityInfo {
                         state: "insecure".to_owned(),
                     },
@@ -495,7 +495,7 @@ impl NetworkEventActor {
         self.cache_details = Some(Self::cache_details(&response));
     }
 
-    pub fn event_actor(&self) -> EventActor {
+    pub fn event_actor(&self, name: String) -> EventActor {
         // TODO: Send the correct values for startedDateTime, isXHR, private
 
         let started_datetime_rfc3339 = match Local.timestamp_millis_opt(
@@ -510,7 +510,7 @@ impl NetworkEventActor {
         };
 
         EventActor {
-            actor: self.name(),
+            actor: name,
             resource_id: self.resource_id,
             url: self.request_url.clone(),
             method: format!("{}", self.request_method),

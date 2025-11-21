@@ -56,7 +56,7 @@ impl Actor for ProcessActor {
         match msg_type {
             "listWorkers" => {
                 let reply = ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     workers: vec![],
                 };
                 request.reply_final(&reply)?
@@ -73,9 +73,9 @@ impl ProcessActor {
         Self { name }
     }
 
-    pub fn encodable(&self) -> ProcessActorMsg {
+    pub fn encode(&self, actor: String) -> ProcessActorMsg {
         ProcessActorMsg {
-            actor: self.name(),
+            actor,
             id: 0,
             is_parent: true,
             is_windowless_parent: false,

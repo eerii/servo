@@ -62,7 +62,7 @@ impl Actor for LongStringActor {
                     .take(end - start)
                     .collect();
                 let reply = SubstringReply {
-                    from: self.name(),
+                    from: name,
                     substring,
                 };
                 request.reply_final(&reply)?

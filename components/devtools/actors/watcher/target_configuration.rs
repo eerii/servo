@@ -82,7 +82,7 @@ impl Actor for TargetConfigurationActor {
                         warn!("No active tab for updateConfiguration");
                     }
                 }
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -118,9 +118,9 @@ impl TargetConfigurationActor {
         }
     }
 
-    pub fn encodable(&self) -> TargetConfigurationActorMsg {
+    pub fn encode(&self, actor: String) -> TargetConfigurationActorMsg {
         TargetConfigurationActorMsg {
-            actor: self.name(),
+            actor,
             configuration: self.configuration.clone(),
             traits: TargetConfigurationTraits {
                 supported_options: self.supported_options.clone(),

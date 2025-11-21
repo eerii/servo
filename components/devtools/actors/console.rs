@@ -94,17 +94,12 @@ struct EvaluateJSReply {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EvaluateJSEvent {
-    from: String,
     #[serde(rename = "type")]
     type_: String,
-    input: String,
-    result: Value,
-    timestamp: u64,
     #[serde(rename = "resultID")]
     result_id: String,
-    exception: Value,
-    exception_message: Value,
-    helper_result: Value,
+    #[serde(flatten)]
+    reply: EvaluateJSReply,
 }
 
 #[derive(Serialize)]
@@ -162,6 +157,7 @@ impl ConsoleActor {
 
     fn evaluate_js(
         &self,
+        name: String,
         registry: &ActorRegistry,
         msg: &Map<String, Value>,
     ) -> Result<EvaluateJSReply, ()> {
@@ -233,7 +229,7 @@ impl ConsoleActor {
 
         // TODO: Catch and return exception values from JS evaluation
         let reply = EvaluateJSReply {
-            from: self.name(),
+            from: name,
             input,
             result,
             timestamp: SystemTime::now()
@@ -369,7 +365,7 @@ impl Actor for ConsoleActor {
                 }
 
                 let msg = GetCachedMessagesReply {
-                    from: self.name(),
+                    from: name,
                     messages,
                 };
                 request.reply_final(&msg)?
@@ -379,7 +375,7 @@ impl Actor for ConsoleActor {
                 // TODO: actually implement listener filters that support starting/stopping
                 let listeners = msg.get("listeners").unwrap().as_array().unwrap().to_owned();
                 let msg = StartedListenersReply {
-                    from: self.name(),
+                    from: name,
                     native_console_api: true,
                     started_listeners: listeners
                         .into_iter()
@@ -393,7 +389,7 @@ impl Actor for ConsoleActor {
             "stopListeners" => {
                 // TODO: actually implement listener filters that support starting/stopping
                 let msg = StopListenersReply {
-                    from: self.name(),
+                    from: name,
                     stopped_listeners: msg
                         .get("listeners")
                         .unwrap()
@@ -410,7 +406,7 @@ impl Actor for ConsoleActor {
             //      http://mxr.mozilla.org/mozilla-central/source/toolkit/devtools/server/actors/webconsole.js
             "autocomplete" => {
                 let msg = AutocompleteReply {
-                    from: self.name(),
+                    from: name,
                     matches: vec![],
                     match_prop: "".to_owned(),
                 };
@@ -418,14 +414,14 @@ impl Actor for ConsoleActor {
             },
 
             "evaluateJS" => {
-                let msg = self.evaluate_js(registry, msg);
+                let msg = self.evaluate_js(name, registry, msg);
                 request.reply_final(&msg)?
             },
 
             "evaluateJSAsync" => {
                 let result_id = Uuid::new_v4().to_string();
                 let early_reply = EvaluateJSAsyncReply {
-                    from: self.name(),
+                    from: name.clone(),
                     result_id: result_id.clone(),
                 };
                 // Emit an eager reply so that the client starts listening
@@ -438,17 +434,11 @@ impl Actor for ConsoleActor {
                     return Ok(());
                 }
 
-                let reply = self.evaluate_js(registry, msg).unwrap();
+                let reply = self.evaluate_js(name, registry, msg).unwrap();
                 let msg = EvaluateJSEvent {
-                    from: self.name(),
                     type_: "evaluationResult".to_owned(),
-                    input: reply.input,
-                    result: reply.result,
-                    timestamp: reply.timestamp,
                     result_id,
-                    exception: reply.exception,
-                    exception_message: reply.exception_message,
-                    helper_result: reply.helper_result,
+                    reply,
                 };
                 // Send the data from evaluateJS along with a resultID
                 stream.write_json_packet(&msg)?
@@ -456,7 +446,7 @@ impl Actor for ConsoleActor {
 
             "setPreferences" => {
                 let msg = SetPreferencesReply {
-                    from: self.name(),
+                    from: name,
                     updated: vec![],
                 };
                 request.reply_final(&msg)?

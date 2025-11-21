@@ -234,7 +234,7 @@ impl Actor for TimelineActor {
                 }
 
                 let emitter = Emitter::new(
-                    self.name(),
+                    name.clone(),
                     registry.shareable(),
                     registry.start_stamp(),
                     request.try_clone_stream().unwrap(),
@@ -245,7 +245,7 @@ impl Actor for TimelineActor {
                 self.pull_timeline_data(rx, emitter);
 
                 let msg = StartReply {
-                    from: self.name(),
+                    from: name,
                     value: HighResolutionStamp::new(
                         registry.start_stamp(),
                         CrossProcessInstant::now(),
@@ -256,7 +256,7 @@ impl Actor for TimelineActor {
 
             "stop" => {
                 let msg = StopReply {
-                    from: self.name(),
+                    from: name,
                     value: HighResolutionStamp::new(
                         registry.start_stamp(),
                         CrossProcessInstant::now(),
@@ -286,7 +286,7 @@ impl Actor for TimelineActor {
 
             "isRecording" => {
                 let msg = IsRecordingReply {
-                    from: self.name(),
+                    from: name,
                     value: *self.is_recording.lock().unwrap(),
                 };
 

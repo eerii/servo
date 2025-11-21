@@ -69,7 +69,7 @@ impl Actor for PerformanceActor {
         match msg_type {
             "connect" => {
                 let msg = ConnectReply {
-                    from: self.name(),
+                    from: name,
                     traits: PerformanceTraits {
                         features: PerformanceFeatures {
                             with_markers: true,
@@ -84,7 +84,7 @@ impl Actor for PerformanceActor {
             },
             "canCurrentlyRecord" => {
                 let msg = CanCurrentlyRecordReply {
-                    from: self.name(),
+                    from: name,
                     value: SuccessMsg {
                         success: true,
                         errors: vec![],

@@ -57,7 +57,7 @@ impl Actor for LayoutInspectorActor {
         match msg_type {
             "getGrids" => {
                 let msg = GetGridsReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Actually create a list of grids
                     grids: vec![],
                 };
@@ -65,7 +65,7 @@ impl Actor for LayoutInspectorActor {
             },
             "getCurrentFlexbox" => {
                 let msg = GetCurrentFlexboxReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Create and return the current flexbox object
                     flexbox: None,
                 };
@@ -84,7 +84,7 @@ impl LayoutInspectorActor {
         Self { name }
     }
 
-    pub fn encodable(&self) -> LayoutInspectorActorMsg {
-        LayoutInspectorActorMsg { actor: self.name() }
+    pub fn encode(&self, actor: String) -> LayoutInspectorActorMsg {
+        LayoutInspectorActorMsg { actor }
     }
 }

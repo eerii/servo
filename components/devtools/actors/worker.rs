@@ -81,7 +81,7 @@ impl Actor for WorkerActor {
         match msg_type {
             "attach" => {
                 let msg = AttachedReply {
-                    from: self.name(),
+                    from: name,
                     type_: "attached".to_owned(),
                     url: self.url.as_str().to_owned(),
                 };
@@ -98,7 +98,7 @@ impl Actor for WorkerActor {
 
             "connect" => {
                 let msg = ConnectReply {
-                    from: self.name(),
+                    from: name,
                     type_: "connected".to_owned(),
                     thread_actor: self.thread.clone(),
                     console_actor: self.console.clone(),
@@ -109,7 +109,7 @@ impl Actor for WorkerActor {
 
             "detach" => {
                 let msg = DetachedReply {
-                    from: self.name(),
+                    from: name,
                     type_: "detached".to_string(),
                 };
                 self.cleanup(stream_id);

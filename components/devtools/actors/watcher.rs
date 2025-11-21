@@ -248,18 +248,20 @@ impl Actor for WatcherActor {
 
                 if target_type == "frame" {
                     let msg = WatchTargetsReply {
-                        from: self.name(),
+                        from: name.clone(),
                         type_: "target-available-form".into(),
-                        target: TargetActorMsg::BrowsingContext(target.encodable()),
+                        target: TargetActorMsg::BrowsingContext(
+                            target.encode(self.browsing_context_actor.clone()),
+                        ),
                     };
                     let _ = request.write_json_packet(&msg);
 
-                    target.frame_update(&mut request);
+                    target.frame_update(self.browsing_context_actor.clone(), &mut request);
                 } else if target_type == "worker" {
                     for worker_name in &root.workers {
                         let worker = registry.find::<WorkerActor>(worker_name);
                         let worker_msg = WatchTargetsReply {
-                            from: self.name(),
+                            from: name.clone(),
                             type_: "target-available-form".into(),
                             target: TargetActorMsg::Worker(worker.encodable()),
                         };
@@ -273,7 +275,7 @@ impl Actor for WatcherActor {
                 // don't count as a reply. Since every message needs to be responded, we send an
                 // extra empty packet to the devtools host to inform that we successfully received
                 // and processed the message so that it can continue
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "watchResources" => {
@@ -339,12 +341,12 @@ impl Actor for WatcherActor {
                         _ => warn!("resource {} not handled yet", resource),
                     }
                 }
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "getParentBrowsingContextID" => {
                 let msg = GetParentBrowsingContextIDReply {
-                    from: self.name(),
+                    from: name,
                     browsing_context_id: target.browsing_context_id.value(),
                 };
                 request.reply_final(&msg)?
@@ -352,8 +354,8 @@ impl Actor for WatcherActor {
             "getNetworkParentActor" => {
                 let network_parent = registry.find::<NetworkParentActor>(&self.network_parent);
                 let msg = GetNetworkParentActorReply {
-                    from: self.name(),
-                    network: network_parent.encodable(),
+                    from: name,
+                    network: network_parent.encode(self.network_parent.clone()),
                 };
                 request.reply_final(&msg)?
             },
@@ -361,8 +363,8 @@ impl Actor for WatcherActor {
                 let target_configuration =
                     registry.find::<TargetConfigurationActor>(&self.target_configuration);
                 let msg = GetTargetConfigurationActorReply {
-                    from: self.name(),
-                    configuration: target_configuration.encodable(),
+                    from: name,
+                    configuration: target_configuration.encode(self.target_configuration.clone()),
                 };
                 request.reply_final(&msg)?
             },
@@ -370,16 +372,16 @@ impl Actor for WatcherActor {
                 let thread_configuration =
                     registry.find::<ThreadConfigurationActor>(&self.thread_configuration);
                 let msg = GetThreadConfigurationActorReply {
-                    from: self.name(),
-                    configuration: thread_configuration.encodable(),
+                    from: name,
+                    configuration: thread_configuration.encode(self.thread_configuration.clone()),
                 };
                 request.reply_final(&msg)?
             },
             "getBreakpointListActor" => {
                 let breakpoint_list = registry.find::<BreakpointListActor>(&self.breakpoint_list);
                 request.reply_final(&GetBreakpointListActorReply {
-                    from: self.name(),
-                    breakpoint_list: breakpoint_list.encodable(),
+                    from: name,
+                    breakpoint_list: breakpoint_list.encode(self.breakpoint_list.clone()),
                 })?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -425,9 +427,9 @@ impl WatcherActor {
         watcher
     }
 
-    pub fn encodable(&self) -> WatcherActorMsg {
+    pub fn encode(&self, actor: String) -> WatcherActorMsg {
         WatcherActorMsg {
-            actor: self.name(),
+            actor,
             traits: WatcherTraits {
                 resources: self.session_context.supported_resources.clone(),
                 targets: self.session_context.supported_targets.clone(),

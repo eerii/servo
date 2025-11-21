@@ -195,7 +195,7 @@ impl ActorRegistry {
         self.script_actors.borrow().contains_key(&script_id)
     }
 
-    pub fn actor_to_script(&self, actor: String) -> String {
+    pub fn actor_to_script(&self, actor: &str) -> String {
         for (key, value) in &*self.script_actors.borrow() {
             debug!("checking {}", value);
             if *value == actor {

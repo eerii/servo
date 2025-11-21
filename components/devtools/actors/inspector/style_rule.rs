@@ -128,12 +128,12 @@ impl Actor for StyleRuleActor {
                     .script_chan
                     .send(ModifyRule(
                         walker.pipeline,
-                        registry.actor_to_script(self.node.clone()),
+                        registry.actor_to_script(&self.node),
                         modifications,
                     ))
                     .map_err(|_| ActorError::Internal)?;
 
-                request.reply_final(&self.encodable(registry))?
+                request.reply_final(&self.encode(name, registry))?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
@@ -150,7 +150,7 @@ impl StyleRuleActor {
         }
     }
 
-    pub fn applied(&self, registry: &ActorRegistry) -> Option<AppliedRule> {
+    pub fn applied(&self, name: String, registry: &ActorRegistry) -> Option<AppliedRule> {
         let node = registry.find::<NodeActor>(&self.node);
         let walker = registry.find::<WalkerActor>(&node.walker);
 
@@ -169,7 +169,7 @@ impl StyleRuleActor {
                 let (selector, stylesheet) = selector.clone();
                 GetStylesheetStyle(
                     walker.pipeline,
-                    registry.actor_to_script(self.node.clone()),
+                    registry.actor_to_script(&self.node),
                     selector,
                     stylesheet,
                     style_sender,
@@ -177,7 +177,7 @@ impl StyleRuleActor {
             },
             None => GetAttributeStyle(
                 walker.pipeline,
-                registry.actor_to_script(self.node.clone()),
+                registry.actor_to_script(&self.node),
                 style_sender,
             ),
         };
@@ -185,7 +185,7 @@ impl StyleRuleActor {
         let style = style_receiver.recv().ok()??;
 
         Some(AppliedRule {
-            actor: self.name(),
+            actor: name,
             ancestor_data: vec![], // TODO: Fill with hierarchy
             authored_text: "".into(),
             css_text: "".into(), // TODO: Specify the css text
@@ -227,7 +227,7 @@ impl StyleRuleActor {
             .script_chan
             .send(GetComputedStyle(
                 walker.pipeline,
-                registry.actor_to_script(self.node.clone()),
+                registry.actor_to_script(&self.node),
                 style_sender,
             ))
             .ok()?;
@@ -249,10 +249,10 @@ impl StyleRuleActor {
         )
     }
 
-    pub fn encodable(&self, registry: &ActorRegistry) -> StyleRuleActorMsg {
+    pub fn encode(&self, name: String, registry: &ActorRegistry) -> StyleRuleActorMsg {
         StyleRuleActorMsg {
-            from: self.name(),
-            rule: self.applied(registry),
+            from: name.clone(),
+            rule: self.applied(name, registry),
         }
     }
 }

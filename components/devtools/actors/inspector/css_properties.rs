@@ -48,7 +48,7 @@ impl Actor for CssPropertiesActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getCSSDatabase" => request.reply_final(&GetCssDatabaseReply {
-                from: self.name(),
+                from: name,
                 properties: &self.properties,
             })?,
             _ => return Err(ActorError::UnrecognizedPacketType),

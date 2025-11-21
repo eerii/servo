@@ -100,7 +100,7 @@ impl Actor for InspectorActor {
 
                 if self.walker.borrow().is_none() {
                     let walker = WalkerActor {
-                        name,
+                        name: name.clone(),
                         script_chan: self.script_chan.clone(),
                         pipeline,
                         root_node: root.clone(),
@@ -112,7 +112,7 @@ impl Actor for InspectorActor {
                 }
 
                 let msg = GetWalkerReply {
-                    from: self.name(),
+                    from: name,
                     walker: WalkerMsg {
                         actor: self.walker.borrow().clone().unwrap(),
                         root,
@@ -134,7 +134,7 @@ impl Actor for InspectorActor {
                 }
 
                 let msg = GetPageStyleReply {
-                    from: self.name(),
+                    from: name,
                     page_style: PageStyleMsg {
                         actor: self.page_style.borrow().clone().unwrap(),
                         traits: HashMap::from([
@@ -150,7 +150,7 @@ impl Actor for InspectorActor {
 
             "supportsHighlighters" => {
                 let msg = SupportsHighlightersReply {
-                    from: self.name(),
+                    from: name,
                     value: true,
                 };
                 request.reply_final(&msg)?
@@ -169,7 +169,7 @@ impl Actor for InspectorActor {
                 }
 
                 let msg = GetHighlighterReply {
-                    from: self.name(),
+                    from: name,
                     highlighter: HighlighterMsg {
                         actor: self.highlighter.borrow().clone().unwrap(),
                     },

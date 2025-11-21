@@ -103,16 +103,13 @@ impl Actor for TabDescriptorActor {
             "getTarget" => {
                 let frame = registry
                     .find::<BrowsingContextActor>(&self.browsing_context_actor)
-                    .encodable();
-                request.reply_final(&GetTargetReply {
-                    from: self.name(),
-                    frame,
-                })?
+                    .encode(self.browsing_context_actor.clone());
+                request.reply_final(&GetTargetReply { from: name, frame })?
             },
             "getFavicon" => {
                 // TODO: Return a favicon when available
                 request.reply_final(&GetFaviconReply {
-                    from: self.name(),
+                    from: name,
                     favicon: String::new(),
                 })?
             },
@@ -120,8 +117,8 @@ impl Actor for TabDescriptorActor {
                 let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
                 let watcher = registry.find::<WatcherActor>(&ctx_actor.watcher);
                 request.reply_final(&GetWatcherReply {
-                    from: self.name(),
-                    watcher: watcher.encodable(),
+                    from: name,
+                    watcher: watcher.encode(ctx_actor.watcher.clone()),
                 })?
             },
             "reloadDescriptor" => {
@@ -133,7 +130,7 @@ impl Actor for TabDescriptorActor {
                     .send(DevtoolScriptControlMsg::Reload(pipeline))
                     .map_err(|_| ActorError::Internal)?;
 
-                request.reply_final(&EmptyReplyMsg { from: self.name() })?
+                request.reply_final(&EmptyReplyMsg { from: name })?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
@@ -157,13 +154,18 @@ impl TabDescriptorActor {
         }
     }
 
-    pub fn encodable(&self, registry: &ActorRegistry, selected: bool) -> TabDescriptorActorMsg {
+    pub fn encode(
+        &self,
+        name: String,
+        registry: &ActorRegistry,
+        selected: bool,
+    ) -> TabDescriptorActorMsg {
         let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
         let title = ctx_actor.title.borrow().clone();
         let url = ctx_actor.url.borrow().clone();
 
         TabDescriptorActorMsg {
-            actor: self.name(),
+            actor: name,
             browser_id: ctx_actor.browser_id.value(),
             browsing_context_id: ctx_actor.browsing_context_id.value(),
             is_zombie_tab: false,

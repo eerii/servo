@@ -169,7 +169,7 @@ impl PageStyleActor {
                     .script_chan
                     .send(GetSelectors(
                         walker.pipeline,
-                        registry.actor_to_script(node.actor.clone()),
+                        registry.actor_to_script(&node.actor),
                         selectors_sender,
                     ))
                     .ok()?;
@@ -191,15 +191,16 @@ impl PageStyleActor {
                                 node_actor.name(),
                                 (!e.key().0.is_empty()).then_some(e.key().clone()),
                             );
-                            let rule = actor.applied(registry)?;
+                            let rule = actor.applied(name.clone(), registry)?;
 
                             registry.register_later(actor);
                             e.insert(name);
                             rule
                         },
                         Entry::Occupied(e) => {
-                            let actor = registry.find::<StyleRuleActor>(e.get());
-                            actor.applied(registry)?
+                            let name = e.get();
+                            let actor = registry.find::<StyleRuleActor>(name);
+                            actor.applied(name.clone(), registry)?
                         },
                     };
                     if inherited.is_some() && rule.declarations.is_empty() {
@@ -218,7 +219,7 @@ impl PageStyleActor {
         .collect();
         let msg = GetAppliedReply {
             entries,
-            from: self.name(),
+            from: name,
         };
         request.reply_final(&msg)
     }
@@ -257,7 +258,7 @@ impl PageStyleActor {
         .unwrap_or_default();
         let msg = GetComputedReply {
             computed,
-            from: self.name(),
+            from: name,
         };
         request.reply_final(&msg)
     }
@@ -279,7 +280,7 @@ impl PageStyleActor {
         self.script_chan
             .send(GetLayout(
                 self.pipeline,
-                registry.actor_to_script(target.to_owned()),
+                registry.actor_to_script(target),
                 computed_node_sender,
             ))
             .unwrap();
@@ -312,7 +313,7 @@ impl PageStyleActor {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let msg = GetLayoutReply {
-            from: self.name(),
+            from: name,
             display,
             position,
             z_index,
@@ -358,7 +359,7 @@ impl PageStyleActor {
 
     fn is_position_editable(&self, name: String, request: ClientRequest) -> Result<(), ActorError> {
         let msg = IsPositionEditableReply {
-            from: self.name(),
+            from: name,
             value: false,
         };
         request.reply_final(&msg)

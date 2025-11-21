@@ -43,16 +43,16 @@ impl FramerateActor {
             ticks: Vec::new(),
         };
 
-        actor.start_recording();
+        actor.start_recording(actor_name.clone());
         registry.register_later(actor);
         actor_name
     }
 
-    pub fn add_tick(&mut self, tick: f64) {
+    pub fn add_tick(&mut self, name: String, tick: f64) {
         self.ticks.push(HighResolutionStamp::wrap(tick));
 
         if self.is_recording {
-            let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, self.name());
+            let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, name);
             self.script_sender.send(msg).unwrap();
         }
     }
@@ -61,14 +61,14 @@ impl FramerateActor {
         mem::take(&mut self.ticks)
     }
 
-    fn start_recording(&mut self) {
+    fn start_recording(&mut self, name: String) {
         if self.is_recording {
             return;
         }
 
         self.is_recording = true;
 
-        let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, self.name());
+        let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, name);
         self.script_sender.send(msg).unwrap();
     }
 

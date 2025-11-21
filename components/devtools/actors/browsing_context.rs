@@ -178,12 +178,12 @@ impl Actor for BrowsingContextActor {
         match msg_type {
             "listFrames" => {
                 // TODO: Find out what needs to be listed here
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "listWorkers" => {
                 request.reply_final(&ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Find out what needs to be listed here
                     workers: vec![],
                 })?
@@ -289,9 +289,9 @@ impl BrowsingContextActor {
         target
     }
 
-    pub fn encodable(&self) -> BrowsingContextActorMsg {
+    pub fn encode(&self, actor: String) -> BrowsingContextActorMsg {
         BrowsingContextActorMsg {
-            actor: self.name(),
+            actor,
             traits: BrowsingContextTraits {
                 is_browsing_context: true,
                 frames: true,
@@ -317,7 +317,7 @@ impl BrowsingContextActor {
         }
     }
 
-    pub(crate) fn navigate(&self, state: NavigationState, id_map: &mut IdMap) {
+    pub(crate) fn navigate(&self, name: String, state: NavigationState, id_map: &mut IdMap) {
         let (pipeline_id, title, url, state) = match state {
             NavigationState::Start(url) => (None, None, url, "start"),
             NavigationState::Stop(pipeline, info) => {
@@ -335,7 +335,7 @@ impl BrowsingContextActor {
         }
 
         let msg = TabNavigated {
-            from: self.name(),
+            from: name,
             type_: "tabNavigated".to_owned(),
             url: url.as_str().to_owned(),
             title,
@@ -356,9 +356,9 @@ impl BrowsingContextActor {
         *self.title.borrow_mut() = title;
     }
 
-    pub(crate) fn frame_update(&self, request: &mut ClientRequest) {
+    pub(crate) fn frame_update(&self, name: String, request: &mut ClientRequest) {
         let _ = request.write_json_packet(&FrameUpdateReply {
-            from: self.name(),
+            from: name,
             type_: "frameUpdate".into(),
             frames: vec![FrameUpdateMsg {
                 id: self.browsing_context_id.value(),

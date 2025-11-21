@@ -157,9 +157,11 @@ impl Actor for RootActor {
             },
 
             "listProcesses" => {
-                let process = registry.find::<ProcessActor>(&self.process).encodable();
+                let process = registry
+                    .find::<ProcessActor>(&self.process)
+                    .encode(self.process.clone());
                 let reply = ListProcessesResponse {
-                    from: self.name(),
+                    from: name,
                     processes: vec![process],
                 };
                 request.reply_final(&reply)?
@@ -167,9 +169,11 @@ impl Actor for RootActor {
 
             // TODO: Unexpected message getTarget for process (when inspecting)
             "getProcess" => {
-                let process = registry.find::<ProcessActor>(&self.process).encodable();
+                let process = registry
+                    .find::<ProcessActor>(&self.process)
+                    .encode(self.process.clone());
                 let reply = GetProcessResponse {
-                    from: self.name(),
+                    from: name,
                     process_descriptor: process,
                 };
                 request.reply_final(&reply)?
@@ -196,7 +200,7 @@ impl Actor for RootActor {
                             let tab_actor = registry.find::<TabDescriptorActor>(target);
                             // Filter out iframes and workers
                             if tab_actor.is_top_level_global() {
-                                Some(tab_actor.encodable(registry, false))
+                                Some(tab_actor.encode(target.clone(), registry, false))
                             } else {
                                 None
                             }
@@ -208,7 +212,7 @@ impl Actor for RootActor {
 
             "listServiceWorkerRegistrations" => {
                 let reply = ListServiceWorkerRegistrationsReply {
-                    from: self.name(),
+                    from: name,
                     registrations: vec![],
                 };
                 request.reply_final(&reply)?
@@ -216,7 +220,7 @@ impl Actor for RootActor {
 
             "listWorkers" => {
                 let reply = ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     workers: self
                         .workers
                         .iter()
@@ -236,16 +240,13 @@ impl Actor for RootActor {
                     return Err(ActorError::Internal);
                 };
 
-                let reply = GetTabReply {
-                    from: self.name(),
-                    tab,
-                };
+                let reply = GetTabReply { from: name, tab };
                 request.reply_final(&reply)?
             },
 
             "protocolDescription" => {
                 let msg = ProtocolDescriptionReply {
-                    from: self.name(),
+                    from: name,
                     types: Types {
                         performance: PerformanceActor::description(),
                         device: DeviceActor::description(),
@@ -285,7 +286,7 @@ impl RootActor {
             .map(|target| {
                 registry
                     .find::<TabDescriptorActor>(target)
-                    .encodable(registry, true)
+                    .encode(target.clone(), registry, true)
             })
             .find(|tab| tab.browser_id() == browser_id);
 

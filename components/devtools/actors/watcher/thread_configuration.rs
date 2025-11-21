@@ -46,7 +46,7 @@ impl Actor for ThreadConfigurationActor {
         match msg_type {
             "updateConfiguration" => {
                 // TODO: Actually update configuration
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -63,7 +63,7 @@ impl ThreadConfigurationActor {
         }
     }
 
-    pub fn encodable(&self) -> ThreadConfigurationActorMsg {
-        ThreadConfigurationActorMsg { actor: self.name() }
+    pub fn encode(&self, actor: String) -> ThreadConfigurationActorMsg {
+        ThreadConfigurationActorMsg { actor }
     }
 }

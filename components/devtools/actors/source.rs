@@ -194,7 +194,7 @@ impl Actor for SourceActor {
             // Client has requested contents of the source.
             "source" => {
                 let reply = SourceContentReply {
-                    from: self.name(),
+                    from: name,
                     content_type: self.content_type.clone(),
                     // TODO: if needed, fetch the page again, in the same way as in the original request.
                     // Fetch it from cache, even if the original request was non-idempotent (e.g. POST).
@@ -225,10 +225,7 @@ impl Actor for SourceActor {
                     .into_iter()
                     .map(|entry| entry.line_number)
                     .collect::<BTreeSet<_>>();
-                let reply = GetBreakableLinesReply {
-                    from: self.name(),
-                    lines,
-                };
+                let reply = GetBreakableLinesReply { from: name, lines };
                 request.reply_final(&reply)?
             },
             // Client wants to know which columns in the line can have breakpoints.
@@ -253,7 +250,7 @@ impl Actor for SourceActor {
                         .insert(entry.column_number - 1);
                 }
                 let reply = GetBreakpointPositionsCompressedReply {
-                    from: self.name(),
+                    from: name,
                     positions,
                 };
                 request.reply_final(&reply)?

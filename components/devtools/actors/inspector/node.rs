@@ -144,17 +144,22 @@ impl Actor for NodeActor {
                     .collect();
 
                 let walker = registry.find::<WalkerActor>(&self.walker);
-                walker.new_mutations(&mut request, &self.name, &modifications);
+                walker.new_mutations(
+                    self.walker.clone(),
+                    &mut request,
+                    &self.name,
+                    &modifications,
+                );
 
                 self.script_chan
                     .send(DevtoolScriptControlMsg::ModifyAttribute(
                         self.pipeline,
-                        registry.actor_to_script(self.name()),
+                        registry.actor_to_script(&name),
                         modifications,
                     ))
                     .map_err(|_| ActorError::Internal)?;
 
-                let reply = EmptyReplyMsg { from: self.name() };
+                let reply = EmptyReplyMsg { from: name };
                 request.reply_final(&reply)?
             },
 
@@ -178,7 +183,7 @@ impl Actor for NodeActor {
                 );
 
                 let msg = GetUniqueSelectorReply {
-                    from: self.name(),
+                    from: name,
                     value: node.display_name,
                 };
                 request.reply_final(&msg)?
@@ -194,14 +199,14 @@ impl Actor for NodeActor {
                 self.script_chan
                     .send(DevtoolScriptControlMsg::GetXPath(
                         self.pipeline,
-                        registry.actor_to_script(target.to_owned()),
+                        registry.actor_to_script(target),
                         tx,
                     ))
                     .unwrap();
 
                 let xpath_selector = rx.recv().map_err(|_| ActorError::Internal)?;
                 let msg = GetXPathReply {
-                    from: self.name(),
+                    from: name,
                     value: xpath_selector,
                 };
                 request.reply_final(&msg)?
@@ -256,7 +261,7 @@ impl NodeInfoToProtocol for NodeInfo {
             .as_ref()
             .map(|host_id| get_or_register_node_actor(host_id));
 
-        let name = registry.actor_to_script(actor.clone());
+        let name = registry.actor_to_script(&actor);
 
         // If a node only has a single text node as a child whith a small enough text,
         // return it with this node as an `inlineTextChild`.
