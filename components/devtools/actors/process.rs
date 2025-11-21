@@ -46,6 +46,7 @@ impl Actor for ProcessActor {
     /// - `listWorkers`: Returns a list of web workers, not supported yet.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

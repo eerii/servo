@@ -30,6 +30,7 @@ impl Actor for NetworkParentActor {
     /// - `setSaveRequestAndResponseBodies`: Doesn't do anything yet
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

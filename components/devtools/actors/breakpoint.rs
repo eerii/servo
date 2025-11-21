@@ -26,6 +26,7 @@ impl Actor for BreakpointListActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &crate::actor::ActorRegistry,
         msg_type: &str,

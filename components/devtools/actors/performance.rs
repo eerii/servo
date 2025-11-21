@@ -59,6 +59,7 @@ impl Actor for PerformanceActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

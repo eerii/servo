@@ -134,6 +134,7 @@ impl Actor for RootActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

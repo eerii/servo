@@ -99,6 +99,7 @@ impl Actor for StyleRuleActor {
     ///   when returning the list of rules.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

@@ -49,15 +49,18 @@ impl ActorError {
 /// and the ability to process messages that are directed to particular actors.
 pub(crate) trait Actor: Any + Send {
     const BASE_NAME: &str;
-    // TODO: Provide default implementation
+    #[allow(unused_variables)] // They are used in non default trait implementations
     fn handle_message(
         &self,
+        name: String, // It will be copied at least once for the reply
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
-    ) -> Result<(), ActorError>;
+    ) -> Result<(), ActorError> {
+        Err(ActorError::UnrecognizedPacketType)
+    }
     // TODO: Remove this function and store the name in `ActorRegistry instead`
     fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId) {}
@@ -70,29 +73,27 @@ pub(crate) trait Actor: Any + Send {
 pub(crate) trait ActorDyn: Any + Send + ActorAsAny {
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError>;
-    fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId);
 }
 
 impl<T: Actor> ActorDyn for T {
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError> {
-        self.handle_message(request, registry, msg_type, msg, stream_id)
-    }
-    fn name(&self) -> String {
-        self.name()
+        self.handle_message(name, request, registry, msg_type, msg, stream_id)
     }
     fn cleanup(&self, id: StreamId) {
         self.cleanup(id)
@@ -261,11 +262,11 @@ impl ActorRegistry {
             Some(actor) => {
                 let msg_type = msg.get("type").unwrap().as_str().unwrap();
                 if let Err(error) = ClientRequest::handle(stream, to, |req| {
-                    actor.handle_message(req, self, msg_type, msg, stream_id)
+                    actor.handle_message(to.into(), req, self, msg_type, msg, stream_id)
                 }) {
                     // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#error-packets>
                     let error = json!({
-                        "from": actor.name(), "error": error.name()
+                        "from": to, "error": error.name()
                     });
                     warn!("Sending devtools protocol error: error={error:?} request={msg:?}");
                     let _ = stream.write_json_packet(&error);

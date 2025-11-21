@@ -46,6 +46,7 @@ impl Actor for HighlighterActor {
     /// - `hide`: Disables highlighting for the selected node
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

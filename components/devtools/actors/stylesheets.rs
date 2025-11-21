@@ -28,6 +28,7 @@ impl Actor for StyleSheetsActor {
     }
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

@@ -26,6 +26,7 @@ impl Actor for ReflowActor {
     /// - `start`: Does nothing yet. This doesn't need a reply like other messages.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

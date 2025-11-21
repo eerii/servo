@@ -252,6 +252,7 @@ impl Actor for NetworkEventActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

@@ -92,6 +92,7 @@ impl Actor for TabDescriptorActor {
     /// - `reloadDescriptor`: Causes the page to reload.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -142,12 +143,12 @@ impl Actor for TabDescriptorActor {
 
 impl TabDescriptorActor {
     pub(crate) fn new(
-        actors: &mut ActorRegistry,
+        registry: &mut ActorRegistry,
         browsing_context_actor: String,
         is_top_level_global: bool,
     ) -> TabDescriptorActor {
-        let name = actors.new_name("tab-description");
-        let root = actors.find_mut::<RootActor>("root");
+        let name = registry.new_name("tab-description");
+        let root = registry.find_mut::<RootActor>("root");
         root.tabs.push(name.clone());
         TabDescriptorActor {
             name,

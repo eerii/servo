@@ -115,6 +115,7 @@ impl Actor for PageStyleActor {
     /// - `isPositionEditable`: Informs whether you can change a style property in the inspector.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -122,10 +123,10 @@ impl Actor for PageStyleActor {
         _id: StreamId,
     ) -> Result<(), ActorError> {
         match msg_type {
-            "getApplied" => self.get_applied(request, msg, registry),
-            "getComputed" => self.get_computed(request, msg, registry),
-            "getLayout" => self.get_layout(request, msg, registry),
-            "isPositionEditable" => self.is_position_editable(request),
+            "getApplied" => self.get_applied(name, request, msg, registry),
+            "getComputed" => self.get_computed(name, request, msg, registry),
+            "getLayout" => self.get_layout(name, request, msg, registry),
+            "isPositionEditable" => self.is_position_editable(name, request),
             _ => Err(ActorError::UnrecognizedPacketType),
         }
     }
@@ -134,6 +135,7 @@ impl Actor for PageStyleActor {
 impl PageStyleActor {
     fn get_applied(
         &self,
+        name: String,
         request: ClientRequest,
         msg: &Map<String, Value>,
         registry: &ActorRegistry,
@@ -223,6 +225,7 @@ impl PageStyleActor {
 
     fn get_computed(
         &self,
+        name: String,
         request: ClientRequest,
         msg: &Map<String, Value>,
         registry: &ActorRegistry,
@@ -261,6 +264,7 @@ impl PageStyleActor {
 
     fn get_layout(
         &self,
+        name: String,
         request: ClientRequest,
         msg: &Map<String, Value>,
         registry: &ActorRegistry,
@@ -352,7 +356,7 @@ impl PageStyleActor {
         request.reply_final(&msg)
     }
 
-    fn is_position_editable(&self, request: ClientRequest) -> Result<(), ActorError> {
+    fn is_position_editable(&self, name: String, request: ClientRequest) -> Result<(), ActorError> {
         let msg = IsPositionEditableReply {
             from: self.name(),
             value: false,

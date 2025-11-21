@@ -58,6 +58,8 @@ pub struct FrameActor {
 }
 
 impl Actor for FrameActor {
+    const BASE_NAME: &str = "frame";
+
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -65,6 +67,7 @@ impl Actor for FrameActor {
     // https://searchfox.org/firefox-main/source/devtools/shared/specs/frame.js
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -81,7 +84,7 @@ impl Actor for FrameActor {
                     from: self.name(),
                     environment: environment.encode(registry),
                 };
-                registry.register_later(Box::new(environment));
+                registry.register_later(environment);
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),

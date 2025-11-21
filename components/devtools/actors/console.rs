@@ -306,6 +306,7 @@ impl Actor for ConsoleActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

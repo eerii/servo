@@ -71,6 +71,7 @@ impl Actor for ThreadActor {
 
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

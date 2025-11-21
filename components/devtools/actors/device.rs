@@ -47,6 +47,7 @@ impl Actor for DeviceActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

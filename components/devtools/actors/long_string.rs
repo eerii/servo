@@ -41,6 +41,7 @@ impl Actor for LongStringActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

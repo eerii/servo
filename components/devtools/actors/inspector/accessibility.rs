@@ -75,6 +75,7 @@ impl Actor for AccessibilityActor {
     ///   inspector Walker actor)
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,

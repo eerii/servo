@@ -39,6 +39,7 @@ impl Actor for CssPropertiesActor {
     ///   inspector can show the available options
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

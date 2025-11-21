@@ -168,6 +168,7 @@ impl Actor for BrowsingContextActor {
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -212,16 +213,16 @@ impl BrowsingContextActor {
         pipeline_id: PipelineId,
         outer_window_id: DevtoolsOuterWindowId,
         script_sender: IpcSender<DevtoolScriptControlMsg>,
-        actors: &mut ActorRegistry,
+        registry: &mut ActorRegistry,
     ) -> BrowsingContextActor {
-        let name = actors.new_name("target");
+        let name = registry.new_name("target");
         let DevtoolsPageInfo {
             title,
             url,
             is_top_level_global,
         } = page_info;
 
-        let accessibility = AccessibilityActor::new(actors.new_name("accessibility"));
+        let accessibility = AccessibilityActor::new(registry.new_name("accessibility"));
 
         let properties = (|| {
             let (properties_sender, properties_receiver) = ipc::channel().ok()?;
@@ -229,10 +230,11 @@ impl BrowsingContextActor {
             properties_receiver.recv().ok()
         })()
         .unwrap_or_default();
-        let css_properties = CssPropertiesActor::new(actors.new_name("css-properties"), properties);
+        let css_properties =
+            CssPropertiesActor::new(registry.new_name("css-properties"), properties);
 
         let inspector = InspectorActor {
-            name: actors.new_name("inspector"),
+            name: registry.new_name("inspector"),
             walker: RefCell::new(None),
             page_style: RefCell::new(None),
             highlighter: RefCell::new(None),
@@ -240,16 +242,16 @@ impl BrowsingContextActor {
             browsing_context: name.clone(),
         };
 
-        let reflow = ReflowActor::new(actors.new_name("reflow"));
+        let reflow = ReflowActor::new(registry.new_name("reflow"));
 
-        let style_sheets = StyleSheetsActor::new(actors.new_name("stylesheets"));
+        let style_sheets = StyleSheetsActor::new(registry.new_name("stylesheets"));
 
-        let tabdesc = TabDescriptorActor::new(actors, name.clone(), is_top_level_global);
+        let tabdesc = TabDescriptorActor::new(registry, name.clone(), is_top_level_global);
 
-        let thread = ThreadActor::new(actors.new_name("thread"));
+        let thread = ThreadActor::new(registry.new_name("thread"));
 
         let watcher = WatcherActor::new(
-            actors,
+            registry,
             name.clone(),
             SessionContext::new(SessionContextType::BrowserElement),
         );
@@ -275,14 +277,14 @@ impl BrowsingContextActor {
             watcher: watcher.name(),
         };
 
-        actors.register(accessibility);
-        actors.register(css_properties);
-        actors.register(inspector);
-        actors.register(reflow);
-        actors.register(style_sheets);
-        actors.register(tabdesc);
-        actors.register(thread);
-        actors.register(watcher);
+        registry.register(accessibility);
+        registry.register(css_properties);
+        registry.register(inspector);
+        registry.register(reflow);
+        registry.register(style_sheets);
+        registry.register(tabdesc);
+        registry.register(thread);
+        registry.register(watcher);
 
         target
     }

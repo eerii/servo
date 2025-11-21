@@ -229,6 +229,7 @@ impl Actor for WatcherActor {
     /// - `getThreadConfigurationActor`: The same but with the configuration actor for the thread
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -395,19 +396,19 @@ impl ResourceAvailable for WatcherActor {
 
 impl WatcherActor {
     pub fn new(
-        actors: &mut ActorRegistry,
+        registry: &mut ActorRegistry,
         browsing_context_actor: String,
         session_context: SessionContext,
     ) -> Self {
-        let network_parent = NetworkParentActor::new(actors.new_name("network-parent"));
+        let network_parent = NetworkParentActor::new(registry.new_name("network-parent"));
         let target_configuration =
-            TargetConfigurationActor::new(actors.new_name("target-configuration"));
+            TargetConfigurationActor::new(registry.new_name("target-configuration"));
         let thread_configuration =
-            ThreadConfigurationActor::new(actors.new_name("thread-configuration"));
-        let breakpoint_list = BreakpointListActor::new(actors.new_name("breakpoint-list"));
+            ThreadConfigurationActor::new(registry.new_name("thread-configuration"));
+        let breakpoint_list = BreakpointListActor::new(registry.new_name("breakpoint-list"));
 
         let watcher = Self {
-            name: actors.new_name("watcher"),
+            name: registry.new_name("watcher"),
             browsing_context_actor,
             network_parent: network_parent.name(),
             target_configuration: target_configuration.name(),
@@ -416,10 +417,10 @@ impl WatcherActor {
             session_context,
         };
 
-        actors.register(network_parent);
-        actors.register(target_configuration);
-        actors.register(thread_configuration);
-        actors.register(breakpoint_list);
+        registry.register(network_parent);
+        registry.register(target_configuration);
+        registry.register(thread_configuration);
+        registry.register(breakpoint_list);
 
         watcher
     }

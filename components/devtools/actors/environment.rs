@@ -5,10 +5,8 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorRegistry};
 use crate::actors::object::ObjectActorMsg;
-use crate::protocol::ClientRequest;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,20 +63,10 @@ pub struct EnvironmentActor {
 }
 
 impl Actor for EnvironmentActor {
+    const BASE_NAME: &str = "environment";
+
     fn name(&self) -> String {
         self.name.clone()
-    }
-
-    fn handle_message(
-        &self,
-        _request: ClientRequest,
-        _registry: &ActorRegistry,
-        _msg_type: &str,
-        _msg: &Map<String, Value>,
-        _id: StreamId,
-    ) -> Result<(), ActorError> {
-        // TODO: Handle messages.
-        Err(ActorError::UnrecognizedPacketType)
     }
 }
 

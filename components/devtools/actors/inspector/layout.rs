@@ -47,6 +47,7 @@ impl Actor for LayoutInspectorActor {
     /// - `getCurrentFlexbox`: Returns the active flexbox, non functional at the moment
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,

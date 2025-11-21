@@ -71,6 +71,7 @@ impl Actor for WorkerActor {
 
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
