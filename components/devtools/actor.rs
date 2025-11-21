@@ -49,7 +49,7 @@ impl ActorError {
 /// A common trait for all devtools actors that encompasses an immutable name
 /// and the ability to process messages that are directed to particular actors.
 /// TODO: ensure the name is immutable
-pub(crate) trait Actor: Any + ActorAsAny + Send {
+pub(crate) trait Actor: Any + Send {
     fn handle_message(
         &self,
         request: ClientRequest,
@@ -61,8 +61,45 @@ pub(crate) trait Actor: Any + ActorAsAny + Send {
         let _ = (request, registry, msg_type, msg, stream_id);
         Err(ActorError::UnrecognizedPacketType)
     }
+    // TODO: Remove this function and store the name in `ActorRegistry instead`
     fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId) {}
+}
+
+/// The constant in the `Actor` trait makes it not dyn compatible.
+/// To be able to have list of actors in `ActorRegistry`, this trait acts as a
+/// bridge for types implementing `Actor`, allowing access to its functions.
+/// <https://doc.rust-lang.org/nightly/reference/items/traits.html#r-items.traits.dyn-compatible.associated-consts>
+pub(crate) trait ActorDyn: Any + ActorAsAny + Send {
+    fn handle_message(
+        &self,
+        request: ClientRequest,
+        registry: &ActorRegistry,
+        msg_type: &str,
+        msg: &Map<String, Value>,
+        stream_id: StreamId,
+    ) -> Result<(), ActorError>;
+    fn name(&self) -> String;
+    fn cleanup(&self, _id: StreamId);
+}
+
+impl<T: Actor> ActorDyn for T {
+    fn handle_message(
+        &self,
+        request: ClientRequest,
+        registry: &ActorRegistry,
+        msg_type: &str,
+        msg: &Map<String, Value>,
+        stream_id: StreamId,
+    ) -> Result<(), ActorError> {
+        self.handle_message(request, registry, msg_type, msg, stream_id)
+    }
+    fn name(&self) -> String {
+        self.name()
+    }
+    fn cleanup(&self, id: StreamId) {
+        self.cleanup(id)
+    }
 }
 
 pub(crate) trait ActorAsAny {
@@ -70,7 +107,7 @@ pub(crate) trait ActorAsAny {
     fn actor_as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl<T: Actor> ActorAsAny for T {
+impl<T: ActorDyn> ActorAsAny for T {
     fn actor_as_any(&self) -> &dyn Any {
         self
     }
@@ -85,8 +122,8 @@ pub(crate) trait ActorEncode<T: Serialize>: Actor {
 
 /// A list of known, owned actors.
 pub struct ActorRegistry {
-    actors: HashMap<String, Box<dyn Actor>>,
-    new_actors: RefCell<Vec<Box<dyn Actor>>>,
+    actors: HashMap<String, Box<dyn ActorDyn>>,
+    new_actors: RefCell<Vec<Box<dyn ActorDyn>>>,
     old_actors: RefCell<Vec<String>>,
     script_actors: RefCell<HashMap<String, String>>,
 
