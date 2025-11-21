@@ -12,9 +12,9 @@
 use std::cell::RefCell;
 
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
-use crate::StreamId;
+use crate::{EmptyReplyMsg, StreamId};
 use crate::actor::{Actor, ActorEncodable, ActorError, ActorRegistry};
 use crate::actors::device::DeviceActor;
 use crate::actors::performance::PerformanceActor;
@@ -128,12 +128,9 @@ pub struct RootActor {
 impl Actor for RootActor {
     const BASE_NAME: &str = "root";
 
-    fn name(&self) -> String {
-        Self::BASE_NAME.into()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -142,14 +139,12 @@ impl Actor for RootActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "connect" => {
-                let message = json!({
-                    "from": "root",
-                });
-                request.reply_final(&message)?
+                let msg = EmptyReplyMsg { from: name };
+                request.reply_final(&msg)?
             },
             "listAddons" => {
                 let actor = ListAddonsReply {
-                    from: "root".to_owned(),
+                    from: name,
                     addons: vec![],
                 };
                 request.reply_final(&actor)?
@@ -158,7 +153,7 @@ impl Actor for RootActor {
             "listProcesses" => {
                 let process = registry.find::<ProcessActor>(&self.process).encodable();
                 let reply = ListProcessesResponse {
-                    from: self.name(),
+                    from: name,
                     processes: vec![process],
                 };
                 request.reply_final(&reply)?
@@ -168,7 +163,7 @@ impl Actor for RootActor {
             "getProcess" => {
                 let process = registry.find::<ProcessActor>(&self.process).encodable();
                 let reply = GetProcessResponse {
-                    from: self.name(),
+                    from: name,
                     process_descriptor: process,
                 };
                 request.reply_final(&reply)?
@@ -176,7 +171,7 @@ impl Actor for RootActor {
 
             "getRoot" => {
                 let actor = GetRootReply {
-                    from: "root".to_owned(),
+                    from: name,
                     selected: 0,
                     performance_actor: self.performance.clone(),
                     device_actor: self.device.clone(),
@@ -187,7 +182,7 @@ impl Actor for RootActor {
 
             "listTabs" => {
                 let actor = ListTabsReply {
-                    from: "root".to_owned(),
+                    from: name,
                     tabs: self
                         .tabs
                         .iter()
@@ -207,7 +202,7 @@ impl Actor for RootActor {
 
             "listServiceWorkerRegistrations" => {
                 let reply = ListServiceWorkerRegistrationsReply {
-                    from: self.name(),
+                    from: name,
                     registrations: vec![],
                 };
                 request.reply_final(&reply)?
@@ -215,7 +210,7 @@ impl Actor for RootActor {
 
             "listWorkers" => {
                 let reply = ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     workers: self
                         .workers
                         .iter()
@@ -236,7 +231,7 @@ impl Actor for RootActor {
                 };
 
                 let reply = GetTabReply {
-                    from: self.name(),
+                    from: name,
                     tab,
                 };
                 request.reply_final(&reply)?
@@ -244,7 +239,7 @@ impl Actor for RootActor {
 
             "protocolDescription" => {
                 let msg = ProtocolDescriptionReply {
-                    from: self.name(),
+                    from: name,
                     types: Types {
                         performance: PerformanceActor::description(),
                         device: DeviceActor::description(),
@@ -260,9 +255,9 @@ impl Actor for RootActor {
 }
 
 impl ActorEncodable<RootActorMsg> for RootActor {
-    fn encode(&self) -> RootActorMsg {
+    fn encode(&self, name: String) -> RootActorMsg {
         RootActorMsg {
-            from: "root".to_owned(),
+            from: name,
             application_type: "browser".to_owned(),
             traits: ActorTraits {
                 sources: false,

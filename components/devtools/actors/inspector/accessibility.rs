@@ -52,16 +52,10 @@ struct GetWalkerReply {
     walker: ActorMsg,
 }
 
-pub struct AccessibilityActor {
-    name: String,
-}
+pub struct AccessibilityActor {}
 
 impl Actor for AccessibilityActor {
     const BASE_NAME: &str = "accessibility";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The accesibility actor can handle the following messages:
     ///
@@ -75,6 +69,7 @@ impl Actor for AccessibilityActor {
     ///   inspector Walker actor)
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -84,7 +79,7 @@ impl Actor for AccessibilityActor {
         match msg_type {
             "bootstrap" => {
                 let msg = BootstrapReply {
-                    from: self.name(),
+                    from: name,
                     state: BootstrapState { enabled: false },
                 };
                 request.reply_final(&msg)?
@@ -93,14 +88,14 @@ impl Actor for AccessibilityActor {
                 // TODO: Create actual simulator
                 let simulator = registry.new_name("simulator");
                 let msg = GetSimulatorReply {
-                    from: self.name(),
+                    from: name,
                     simulator: ActorMsg { actor: simulator },
                 };
                 request.reply_final(&msg)?
             },
             "getTraits" => {
                 let msg = GetTraitsReply {
-                    from: self.name(),
+                    from: name,
                     traits: AccessibilityTraits {
                         tabbing_order: true,
                     },
@@ -111,7 +106,7 @@ impl Actor for AccessibilityActor {
                 // TODO: Create actual accessible walker
                 let walker = registry.new_name("accesiblewalker");
                 let msg = GetWalkerReply {
-                    from: self.name(),
+                    from: name,
                     walker: ActorMsg { actor: walker },
                 };
                 request.reply_final(&msg)?
@@ -119,11 +114,5 @@ impl Actor for AccessibilityActor {
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
-    }
-}
-
-impl AccessibilityActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
     }
 }

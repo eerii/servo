@@ -160,14 +160,11 @@ impl ResourceAvailable for BrowsingContextActor {
 }
 
 impl Actor for BrowsingContextActor {
-    const BASE_NAME: &str = "context";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
+    const BASE_NAME: &str = "target";
 
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -177,12 +174,12 @@ impl Actor for BrowsingContextActor {
         match msg_type {
             "listFrames" => {
                 // TODO: Find out what needs to be listed here
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "listWorkers" => {
                 request.reply_final(&ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Find out what needs to be listed here
                     workers: vec![],
                 })?
@@ -214,14 +211,13 @@ impl BrowsingContextActor {
         script_sender: IpcSender<DevtoolScriptControlMsg>,
         actors: &mut ActorRegistry,
     ) -> BrowsingContextActor {
-        let name = actors.new_name("target");
         let DevtoolsPageInfo {
             title,
             url,
             is_top_level_global,
         } = page_info;
 
-        let accessibility = AccessibilityActor::new(actors.new_name("accessibility"));
+        let accessibility = actors.register(AccessibilityActor {});
 
         let properties = (|| {
             let (properties_sender, properties_receiver) = ipc::channel().ok()?;
@@ -229,25 +225,26 @@ impl BrowsingContextActor {
             properties_receiver.recv().ok()
         })()
         .unwrap_or_default();
-        let css_properties = CssPropertiesActor::new(actors.new_name("css-properties"), properties);
+        let css_properties = actors.register(CssPropertiesActor { properties });
 
         let inspector = InspectorActor {
-            name: actors.new_name("inspector"),
             walker: RefCell::new(None),
             page_style: RefCell::new(None),
             highlighter: RefCell::new(None),
             script_chan: script_sender.clone(),
+            // TODO: Careful, circular dependency
             browsing_context: name.clone(),
         };
 
-        let reflow = ReflowActor::new(actors.new_name("reflow"));
+        let reflow = actors.register(ReflowActor {});
 
-        let style_sheets = StyleSheetsActor::new(actors.new_name("stylesheets"));
+        let stylesheets = actors.register(StyleSheetsActor {});
 
-        let tabdesc = TabDescriptorActor::new(actors, name.clone(), is_top_level_global);
+        let tab = TabDescriptorActor::register_new(actors, name.clone(), is_top_level_global);
 
-        let thread = ThreadActor::new(actors.new_name("thread"));
+        let thread = actors.register(ThreadActor {});
 
+        // TODO: Careful!! Should this have the same name as browsingcontext?
         let watcher = WatcherActor::new(
             actors,
             name.clone(),
@@ -263,24 +260,22 @@ impl BrowsingContextActor {
             active_outer_window_id: Cell::new(outer_window_id),
             browser_id,
             browsing_context_id,
-            accessibility: accessibility.name(),
+            accessibility,
             console,
             css_properties: css_properties.name(),
             inspector: inspector.name(),
             reflow: reflow.name(),
             streams: RefCell::new(HashMap::new()),
-            style_sheets: style_sheets.name(),
-            _tab: tabdesc.name(),
+            style_sheets: stylesheets.name(),
+            _tab: tab.name(),
             thread: thread.name(),
             watcher: watcher.name(),
         };
 
-        actors.register(Box::new(accessibility));
-        actors.register(Box::new(css_properties));
         actors.register(Box::new(inspector));
         actors.register(Box::new(reflow));
-        actors.register(Box::new(style_sheets));
-        actors.register(Box::new(tabdesc));
+        actors.register(Box::new(stylesheets));
+        actors.register(Box::new(tab));
         actors.register(Box::new(thread));
         actors.register(Box::new(watcher));
 
@@ -289,7 +284,7 @@ impl BrowsingContextActor {
 
     pub fn encodable(&self) -> BrowsingContextActorMsg {
         BrowsingContextActorMsg {
-            actor: self.name(),
+            actor: name,
             traits: BrowsingContextTraits {
                 is_browsing_context: true,
                 frames: true,
@@ -333,7 +328,7 @@ impl BrowsingContextActor {
         }
 
         let msg = TabNavigated {
-            from: self.name(),
+            from: name,
             type_: "tabNavigated".to_owned(),
             url: url.as_str().to_owned(),
             title,
@@ -356,7 +351,7 @@ impl BrowsingContextActor {
 
     pub(crate) fn frame_update(&self, request: &mut ClientRequest) {
         let _ = request.write_json_packet(&FrameUpdateReply {
-            from: self.name(),
+            from: name,
             type_: "frameUpdate".into(),
             frames: vec![FrameUpdateMsg {
                 id: self.browsing_context_id.value(),

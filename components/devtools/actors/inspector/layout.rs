@@ -74,8 +74,6 @@ impl Actor for LayoutInspectorActor {
         };
         Ok(())
     }
-
-    fn cleanup(&self, _id: StreamId) {}
 }
 
 impl LayoutInspectorActor {

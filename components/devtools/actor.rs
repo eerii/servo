@@ -63,7 +63,7 @@ pub(crate) trait Actor {
 
     fn handle_message(
         &self,
-        // name: &str,
+        name: String, // It will always require at least one copy for the `from` field
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -71,26 +71,20 @@ pub(crate) trait Actor {
         stream_id: StreamId,
     ) -> Result<(), ActorError>;
 
-    fn name(&self) -> String;
-
     fn cleanup(&self, _id: StreamId) {}
 }
 
-impl<T: Any + Actor> ActorDyn for T {
+impl<T: Actor + Any + Send> ActorDyn for T {
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError> {
-        self.handle_message(request, registry, msg_type, msg, stream_id)
-    }
-
-    // TODO: Remove
-    fn name(&self) -> String {
-        self.name()
+        self.handle_message(name, request, registry, msg_type, msg, stream_id)
     }
 
     fn cleanup(&self, id: StreamId) {
@@ -100,17 +94,16 @@ impl<T: Any + Actor> ActorDyn for T {
 
 /// A common trait for all devtools actors that encompasses an immutable name
 /// and the ability to process messages that are directed to particular actors.
-pub(crate) trait ActorDyn: Any + ActorAsAny {
+pub(crate) trait ActorDyn: Any + ActorAsAny + Send {
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError>;
-
-    fn name(&self) -> String;
 
     fn cleanup(&self, _id: StreamId);
 }
@@ -140,22 +133,22 @@ impl<T: ActorDyn> ActorAsAny for T {
 /// pub struct SomeActor {}
 ///
 /// #[derive(Serialize)]
-/// pub struct SomeActorMsg {}
+/// pub struct SomeActorMsg { name: String }
 ///
 /// impl ActorEncodable<SomeActorMsg> for SomeActor {
-///     fn encode(&self) -> SomeActorMsg {
-///         return SomeActorMsg {}
+///     fn encode(&self, name: String) -> SomeActorMsg {
+///         return SomeActorMsg { name }
 ///     }
 /// }
 /// ```
 pub(crate) trait ActorEncodable<T: Serialize> {
-    fn encode(&self) -> T;
+    fn encode(&self, name: String) -> T;
 }
 
 /// A list of known, owned actors.
 pub struct ActorRegistry {
-    actors: HashMap<String, Box<dyn ActorDyn + Send>>,
-    new_actors: RefCell<Vec<Box<dyn ActorDyn + Send>>>,
+    actors: HashMap<String, Box<dyn ActorDyn>>,
+    new_actors: RefCell<HashMap<String, Box<dyn ActorDyn>>>,
     old_actors: RefCell<Vec<String>>,
     script_actors: RefCell<HashMap<String, String>>,
 
@@ -245,20 +238,24 @@ impl ActorRegistry {
     }
 
     /// Create a unique name based on a monotonically increasing suffix
-    pub fn new_name(&self, prefix: &str) -> String {
+    fn new_name<T: Actor>(&self) -> String {
         let suffix = self.next.get();
         self.next.set(suffix + 1);
-        format!("{}{}", prefix, suffix)
+        format!("{}{}", T::BASE_NAME, suffix)
     }
 
     /// Add an actor to the registry of known actors that can receive messages.
-    pub(crate) fn register(&mut self, actor: Box<dyn ActorDyn + Send>) {
-        self.actors.insert(actor.name(), actor);
+    pub(crate) fn register<T: Actor + Any + Send>(&mut self, actor: T) -> String {
+        let name = self.new_name::<T>();
+        self.actors.insert(name.clone(), Box::new(actor));
+        name
     }
 
-    pub(crate) fn register_later(&self, actor: Box<dyn ActorDyn + Send>) {
+    pub(crate) fn register_later<T: Actor + Any + Send>(&self, actor: T) -> String {
+        let name = self.new_name::<T>();
         let mut actors = self.new_actors.borrow_mut();
-        actors.push(actor);
+        actors.insert(name.clone(), Box::new(actor));
+        name
     }
 
     /// Find an actor by registered name
@@ -298,11 +295,11 @@ impl ActorRegistry {
             Some(actor) => {
                 let msg_type = msg.get("type").unwrap().as_str().unwrap();
                 if let Err(error) = ClientRequest::handle(stream, to, |req| {
-                    actor.handle_message(req, self, msg_type, msg, stream_id)
+                    actor.handle_message(to.into(), req, self, msg_type, msg, stream_id)
                 }) {
                     // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#error-packets>
                     let error = json!({
-                        "from": actor.name(), "error": error.name()
+                        "from": to, "error": error.name()
                     });
                     warn!("Sending devtools protocol error: error={error:?} request={msg:?}");
                     let _ = stream.write_json_packet(&error);
@@ -310,8 +307,8 @@ impl ActorRegistry {
             },
         }
         let new_actors = mem::take(&mut *self.new_actors.borrow_mut());
-        for actor in new_actors.into_iter() {
-            self.actors.insert(actor.name().to_owned(), actor);
+        for (name, actor) in new_actors.into_iter() {
+            self.actors.insert(name, actor);
         }
 
         let old_actors = mem::take(&mut *self.old_actors.borrow_mut());

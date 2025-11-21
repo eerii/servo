@@ -5,7 +5,7 @@
 use serde::Serialize;
 
 use crate::EmptyReplyMsg;
-use crate::actor::{Actor, ActorError};
+use crate::actor::{Actor, ActorEncodable, ActorError};
 use crate::protocol::ClientRequest;
 
 #[derive(Serialize)]
@@ -13,19 +13,14 @@ pub struct BreakpointListActorMsg {
     actor: String,
 }
 
-pub struct BreakpointListActor {
-    name: String,
-}
+pub struct BreakpointListActor {}
 
 impl Actor for BreakpointListActor {
     const BASE_NAME: &str = "breakpointlist";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &crate::actor::ActorRegistry,
         msg_type: &str,
@@ -37,15 +32,15 @@ impl Actor for BreakpointListActor {
             // Seems to be infallible, unlike the thread actor’s `setBreakpoint`.
             // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#breakpoints>
             "setBreakpoint" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "setActiveEventBreakpoints" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "removeBreakpoint" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -54,12 +49,8 @@ impl Actor for BreakpointListActor {
     }
 }
 
-impl BreakpointListActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-
-    pub fn encodable(&self) -> BreakpointListActorMsg {
-        BreakpointListActorMsg { actor: self.name() }
+impl ActorEncodable<BreakpointListActorMsg> for BreakpointListActor {
+    fn encode(&self, name: String) -> BreakpointListActorMsg {
+        BreakpointListActorMsg { actor: name }
     }
 }

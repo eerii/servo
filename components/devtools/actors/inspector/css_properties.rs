@@ -15,23 +15,18 @@ use crate::StreamId;
 use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 
-pub struct CssPropertiesActor {
-    name: String,
-    properties: HashMap<String, CssDatabaseProperty>,
-}
-
 #[derive(Serialize)]
 struct GetCssDatabaseReply<'a> {
     from: String,
     properties: &'a HashMap<String, CssDatabaseProperty>,
 }
 
-impl Actor for CssPropertiesActor {
-    const BASE_NAME: &str = "cssproperties";
+pub struct CssPropertiesActor {
+    pub properties: HashMap<String, CssDatabaseProperty>,
+}
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
+impl Actor for CssPropertiesActor {
+    const BASE_NAME: &str = "css_properties";
 
     /// The css properties actor can handle the following messages:
     ///
@@ -39,6 +34,7 @@ impl Actor for CssPropertiesActor {
     ///   inspector can show the available options
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -47,17 +43,11 @@ impl Actor for CssPropertiesActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getCSSDatabase" => request.reply_final(&GetCssDatabaseReply {
-                from: self.name(),
+                from: name,
                 properties: &self.properties,
             })?,
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
-    }
-}
-
-impl CssPropertiesActor {
-    pub fn new(name: String, properties: HashMap<String, CssDatabaseProperty>) -> Self {
-        Self { name, properties }
     }
 }

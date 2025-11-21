@@ -158,7 +158,7 @@ impl DevtoolsInstance {
         let device = DeviceActor::new(registry.new_name("device"));
         let preference = PreferenceActor::new(registry.new_name("preference"));
         let process = ProcessActor::new(registry.new_name("process"));
-        let root = Box::new(RootActor {
+        let root = RootActor {
             active_tab: None.into(),
             device: device.name(),
             performance: performance.name(),
@@ -166,13 +166,13 @@ impl DevtoolsInstance {
             process: process.name(),
             tabs: vec![],
             workers: vec![],
-        });
+        };
 
         registry.register(root);
-        registry.register(Box::new(performance));
-        registry.register(Box::new(device));
-        registry.register(Box::new(preference));
-        registry.register(Box::new(process));
+        registry.register(performance);
+        registry.register(device);
+        registry.register(preference);
+        registry.register(process);
         registry.find::<RootActor>("root");
 
         let actors = registry.create_shareable();

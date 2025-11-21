@@ -24,7 +24,7 @@ use self::network_parent::{NetworkParentActor, NetworkParentActorMsg};
 use super::breakpoint::BreakpointListActor;
 use super::thread::ThreadActor;
 use super::worker::WorkerMsg;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncodable, ActorError, ActorRegistry};
 use crate::actors::breakpoint::BreakpointListActorMsg;
 use crate::actors::browsing_context::{BrowsingContextActor, BrowsingContextActorMsg};
 use crate::actors::root::RootActor;
@@ -182,7 +182,6 @@ pub struct WatcherActorMsg {
 }
 
 pub struct WatcherActor {
-    name: String,
     browsing_context_actor: String,
     network_parent: String,
     target_configuration: String,
@@ -207,10 +206,6 @@ pub struct WillNavigateMessage {
 impl Actor for WatcherActor {
     const BASE_NAME: &str = "watcher";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The watcher actor can handle the following messages:
     ///
     /// - `watchTargets`: Returns a list of objects to debug. Since we only support web views, it
@@ -229,6 +224,7 @@ impl Actor for WatcherActor {
     /// - `getThreadConfigurationActor`: The same but with the configuration actor for the thread
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -247,7 +243,7 @@ impl Actor for WatcherActor {
 
                 if target_type == "frame" {
                     let msg = WatchTargetsReply {
-                        from: self.name(),
+                        from: name,
                         type_: "target-available-form".into(),
                         target: TargetActorMsg::BrowsingContext(target.encodable()),
                     };
@@ -258,7 +254,7 @@ impl Actor for WatcherActor {
                     for worker_name in &root.workers {
                         let worker = registry.find::<WorkerActor>(worker_name);
                         let worker_msg = WatchTargetsReply {
-                            from: self.name(),
+                            from: name,
                             type_: "target-available-form".into(),
                             target: TargetActorMsg::Worker(worker.encodable()),
                         };
@@ -272,7 +268,7 @@ impl Actor for WatcherActor {
                 // don't count as a reply. Since every message needs to be responded, we send an
                 // extra empty packet to the devtools host to inform that we successfully received
                 // and processed the message so that it can continue
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "watchResources" => {
@@ -338,12 +334,12 @@ impl Actor for WatcherActor {
                         _ => warn!("resource {} not handled yet", resource),
                     }
                 }
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "getParentBrowsingContextID" => {
                 let msg = GetParentBrowsingContextIDReply {
-                    from: self.name(),
+                    from: name,
                     browsing_context_id: target.browsing_context_id.value(),
                 };
                 request.reply_final(&msg)?
@@ -351,7 +347,7 @@ impl Actor for WatcherActor {
             "getNetworkParentActor" => {
                 let network_parent = registry.find::<NetworkParentActor>(&self.network_parent);
                 let msg = GetNetworkParentActorReply {
-                    from: self.name(),
+                    from: name,
                     network: network_parent.encodable(),
                 };
                 request.reply_final(&msg)?
@@ -360,7 +356,7 @@ impl Actor for WatcherActor {
                 let target_configuration =
                     registry.find::<TargetConfigurationActor>(&self.target_configuration);
                 let msg = GetTargetConfigurationActorReply {
-                    from: self.name(),
+                    from: name,
                     configuration: target_configuration.encodable(),
                 };
                 request.reply_final(&msg)?
@@ -369,7 +365,7 @@ impl Actor for WatcherActor {
                 let thread_configuration =
                     registry.find::<ThreadConfigurationActor>(&self.thread_configuration);
                 let msg = GetThreadConfigurationActorReply {
-                    from: self.name(),
+                    from: name,
                     configuration: thread_configuration.encodable(),
                 };
                 request.reply_final(&msg)?
@@ -377,8 +373,8 @@ impl Actor for WatcherActor {
             "getBreakpointListActor" => {
                 let breakpoint_list = registry.find::<BreakpointListActor>(&self.breakpoint_list);
                 request.reply_final(&GetBreakpointListActorReply {
-                    from: self.name(),
-                    breakpoint_list: breakpoint_list.encodable(),
+                    from: name,
+                    breakpoint_list: breakpoint_list.encode(self.breakpoint_list.clone()),
                 })?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -426,7 +422,7 @@ impl WatcherActor {
 
     pub fn encodable(&self) -> WatcherActorMsg {
         WatcherActorMsg {
-            actor: self.name(),
+            actor: name,
             traits: WatcherTraits {
                 resources: self.session_context.supported_resources.clone(),
                 targets: self.session_context.supported_targets.clone(),

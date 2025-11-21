@@ -10,22 +10,17 @@ use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 use crate::{EmptyReplyMsg, StreamId};
 
-pub struct ReflowActor {
-    name: String,
-}
+pub struct ReflowActor {}
 
 impl Actor for ReflowActor {
     const BASE_NAME: &str = "reflow";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The reflow actor can handle the following messages:
     ///
     /// - `start`: Does nothing yet. This doesn't need a reply like other messages.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -35,19 +30,11 @@ impl Actor for ReflowActor {
         match msg_type {
             "start" => {
                 // TODO: Create an observer on "reflows" events
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
-    }
-
-    fn cleanup(&self, _id: StreamId) {}
-}
-
-impl ReflowActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
     }
 }

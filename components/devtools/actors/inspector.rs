@@ -57,7 +57,6 @@ struct GetHighlighterReply {
 }
 
 pub struct InspectorActor {
-    pub name: String,
     pub walker: RefCell<Option<String>>,
     pub page_style: RefCell<Option<String>>,
     pub highlighter: RefCell<Option<String>>,
@@ -68,12 +67,9 @@ pub struct InspectorActor {
 impl Actor for InspectorActor {
     const BASE_NAME: &str = "inspector";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name:String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -111,7 +107,7 @@ impl Actor for InspectorActor {
                 }
 
                 let msg = GetWalkerReply {
-                    from: self.name(),
+                    from: name,
                     walker: WalkerMsg {
                         actor: self.walker.borrow().clone().unwrap(),
                         root,
@@ -133,7 +129,7 @@ impl Actor for InspectorActor {
                 }
 
                 let msg = GetPageStyleReply {
-                    from: self.name(),
+                    from: name,
                     page_style: PageStyleMsg {
                         actor: self.page_style.borrow().clone().unwrap(),
                         traits: HashMap::from([
@@ -149,7 +145,7 @@ impl Actor for InspectorActor {
 
             "supportsHighlighters" => {
                 let msg = SupportsHighlightersReply {
-                    from: self.name(),
+                    from: name,
                     value: true,
                 };
                 request.reply_final(&msg)?
@@ -168,7 +164,7 @@ impl Actor for InspectorActor {
                 }
 
                 let msg = GetHighlighterReply {
-                    from: self.name(),
+                    from: name,
                     highlighter: HighlighterMsg {
                         actor: self.highlighter.borrow().clone().unwrap(),
                     },
