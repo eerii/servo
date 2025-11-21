@@ -211,13 +211,15 @@ impl ActorRegistry {
     }
 
     /// Add an actor to the registry of known actors that can receive messages.
-    pub(crate) fn register(&mut self, actor: Box<dyn ActorDyn>) {
-        self.actors.insert(actor.name(), actor);
+    pub(crate) fn register<T: Actor>(&mut self, actor: T) {
+        self.actors.insert(actor.name(), Box::new(actor));
     }
 
-    pub(crate) fn register_later(&self, actor: Box<dyn ActorDyn>) {
+    /// Add an actor to the registry that can receive messages.
+    /// It won't be available until after the next message is processed.
+    pub(crate) fn register_later<T: Actor>(&self, actor: T) {
         let mut actors = self.new_actors.borrow_mut();
-        actors.push(actor);
+        actors.push(Box::new(actor));
     }
 
     /// Find an actor by registered name
