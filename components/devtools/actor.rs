@@ -48,7 +48,6 @@ impl ActorError {
 
 /// A common trait for all devtools actors that encompasses an immutable name
 /// and the ability to process messages that are directed to particular actors.
-/// TODO: ensure the name is immutable
 pub(crate) trait Actor: Any + Send {
     const BASE_NAME: &str;
     fn handle_message(
@@ -124,7 +123,7 @@ pub(crate) trait ActorEncode<T: Serialize>: Actor {
 /// A list of known, owned actors.
 pub struct ActorRegistry {
     actors: HashMap<String, Box<dyn ActorDyn>>,
-    new_actors: RefCell<Vec<Box<dyn ActorDyn>>>,
+    new_actors: RefCell<HashMap<String, Box<dyn ActorDyn>>>,
     old_actors: RefCell<Vec<String>>,
     script_actors: RefCell<HashMap<String, String>>,
 
@@ -143,7 +142,7 @@ impl ActorRegistry {
     pub fn new() -> ActorRegistry {
         ActorRegistry {
             actors: HashMap::new(),
-            new_actors: RefCell::new(vec![]),
+            new_actors: RefCell::new(HashMap::new()),
             old_actors: RefCell::new(vec![]),
             script_actors: RefCell::new(HashMap::new()),
             source_actor_names: RefCell::new(HashMap::new()),
@@ -227,8 +226,9 @@ impl ActorRegistry {
     /// Add an actor to the registry that can receive messages.
     /// It won't be available until after the next message is processed.
     pub(crate) fn register_later<T: Actor>(&self, actor: T) {
-        let mut actors = self.new_actors.borrow_mut();
-        actors.push(Box::new(actor));
+        self.new_actors
+            .borrow_mut()
+            .insert(actor.name(), Box::new(actor));
     }
 
     /// Find an actor by registered name
@@ -285,8 +285,8 @@ impl ActorRegistry {
             },
         }
         let new_actors = mem::take(&mut *self.new_actors.borrow_mut());
-        for actor in new_actors.into_iter() {
-            self.actors.insert(actor.name().to_owned(), actor);
+        for (name, actor) in new_actors.into_iter() {
+            self.actors.insert(name, actor);
         }
 
         let old_actors = mem::take(&mut *self.old_actors.borrow_mut());
