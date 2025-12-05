@@ -36,8 +36,10 @@ use serde::Serialize;
 use crate::actor::{Actor, ActorRegistry};
 use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::console::{ConsoleActor, Root};
+use crate::actors::frame::FrameActor;
 use crate::actors::framerate::FramerateActor;
 use crate::actors::network_event::NetworkEventActor;
+use crate::actors::object::ObjectActor;
 use crate::actors::root::RootActor;
 use crate::actors::source::SourceActor;
 use crate::actors::thread::ThreadActor;
@@ -550,6 +552,16 @@ impl DevtoolsInstance {
         let source_actor_name = source_actor.name.clone();
         let source_form = source_actor.source_form();
 
+        let object = ObjectActor {
+            name: actors.new_name("object"),
+            _uuid: "1234".into(), // TODO: Use real UUID
+        };
+        let frame = FrameActor {
+            name: actors.new_name("frame"),
+            source_actor: source_actor_name.clone(),
+            object_actor: object.name.clone(),
+        };
+
         if let Some(worker_id) = source_info.worker_id {
             let Some(worker_actor_name) = self.actor_workers.get(&worker_id) else {
                 return;
@@ -559,6 +571,7 @@ impl DevtoolsInstance {
             let thread_actor = actors.find_mut::<ThreadActor>(&thread_actor_name);
 
             thread_actor.source_manager.add_source(&source_actor_name);
+            thread_actor.frame_manager.add_frame(&frame.name);
 
             let worker_actor = actors.find::<WorkerActor>(worker_actor_name);
 
@@ -586,6 +599,7 @@ impl DevtoolsInstance {
             let thread_actor = actors.find_mut::<ThreadActor>(&thread_actor_name);
 
             thread_actor.source_manager.add_source(&source_actor_name);
+            thread_actor.frame_manager.add_frame(&frame.name);
 
             // Notify browsing context about the new source
             let browsing_context = actors.find::<BrowsingContextActor>(actor_name);
@@ -599,6 +613,9 @@ impl DevtoolsInstance {
                 );
             }
         }
+
+        actors.register_later(object);
+        actors.register_later(frame);
     }
 
     fn handle_update_source_content(&mut self, pipeline_id: PipelineId, source_content: String) {
