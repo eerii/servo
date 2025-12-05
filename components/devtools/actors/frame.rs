@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// TODO: Remove once the actor is used
-#![allow(dead_code)]
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -11,6 +11,7 @@ use serde_json::{Map, Value};
 use crate::StreamId;
 use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::actors::environment::{EnvironmentActor, EnvironmentActorMsg, EnvironmentToProtocol};
+use crate::actors::object::{ObjectActor, ObjectActorMsg, ObjectToProtocol};
 use crate::protocol::ClientRequest;
 
 #[derive(Serialize)]
@@ -24,8 +25,9 @@ struct FrameEnvironmentReply {
 #[serde(rename_all = "kebab-case")]
 pub enum FrameState {
     OnStack,
-    Suspended,
-    Dead,
+    // Not implemented
+    _Suspended,
+    _Dead,
 }
 
 #[derive(Serialize)]
@@ -46,8 +48,37 @@ pub struct FrameActorMsg {
     display_name: String,
     oldest: bool,
     state: FrameState,
+    #[serde(rename = "this")]
+    this_: ObjectActorMsg,
     #[serde(rename = "where")]
     where_: FrameWhere,
+}
+
+#[derive(Serialize)]
+pub struct FramesReply {
+    pub from: String,
+    pub frames: Vec<FrameActorMsg>,
+}
+
+#[derive(Default)]
+pub struct FrameManager {
+    frame_actor_names: RefCell<BTreeSet<String>>,
+}
+
+impl FrameManager {
+    pub fn add_frame(&self, actor_name: &str) {
+        self.frame_actor_names
+            .borrow_mut()
+            .insert(actor_name.to_owned());
+    }
+
+    pub fn encoded_frames(&self, registry: &ActorRegistry) -> Vec<FrameActorMsg> {
+        self.frame_actor_names
+            .borrow()
+            .iter()
+            .map(|name| registry.find::<FrameActor>(name).encode(registry))
+            .collect()
+    }
 }
 
 /// Represents an stack frame. Used by `ThreadActor` when replying to interrupt messages.
@@ -55,6 +86,7 @@ pub struct FrameActorMsg {
 pub struct FrameActor {
     pub name: String,
     pub source_actor: String,
+    pub object_actor: String,
 }
 
 impl Actor for FrameActor {
@@ -91,11 +123,11 @@ impl Actor for FrameActor {
 }
 
 pub trait FrameToProtocol {
-    fn encode(self) -> FrameActorMsg;
+    fn encode(&self, registry: &ActorRegistry) -> FrameActorMsg;
 }
 
 impl FrameToProtocol for FrameActor {
-    fn encode(self) -> FrameActorMsg {
+    fn encode(&self, registry: &ActorRegistry) -> FrameActorMsg {
         // TODO: Handle other states
         let state = FrameState::OnStack;
         let async_cause = if let FrameState::OnStack = state {
@@ -103,16 +135,18 @@ impl FrameToProtocol for FrameActor {
         } else {
             Some("await".into())
         };
+
         FrameActorMsg {
-            actor: self.name,
+            actor: self.name.clone(),
             type_: "call".into(),
             arguments: vec![],
             async_cause,
             display_name: "".into(), // TODO: get display name
             oldest: true,
             state,
+            this_: registry.find::<ObjectActor>(&self.object_actor).encode(),
             where_: FrameWhere {
-                actor: self.source_actor,
+                actor: self.source_actor.clone(),
                 line: 1, // TODO: get from breakpoint?
                 column: 1,
             },

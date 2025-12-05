@@ -63,14 +63,14 @@ impl ObjectActor {
 // TODO: Remove once the message is used.
 #[allow(dead_code)]
 pub trait ObjectToProtocol {
-    fn encode(self) -> ObjectActorMsg;
+    fn encode(&self) -> ObjectActorMsg;
 }
 
 impl ObjectToProtocol for ObjectActor {
-    fn encode(self) -> ObjectActorMsg {
+    fn encode(&self) -> ObjectActorMsg {
         // TODO: Review hardcoded values here
         ObjectActorMsg {
-            actor: self.name,
+            actor: self.name(),
             type_: "object".into(),
             class: "Window".into(),
             own_property_length: 0,
