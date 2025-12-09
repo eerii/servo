@@ -13,23 +13,20 @@ use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 use crate::{ActorMsg, EmptyReplyMsg, StreamId};
 
+#[derive(Default)]
 pub struct ThreadConfigurationActor {
-    name: String,
     _configuration: HashMap<&'static str, bool>,
 }
 
 impl Actor for ThreadConfigurationActor {
     const BASE_NAME: &str = "thread-configuration";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The thread configuration actor can handle the following messages:
     ///
     /// - `updateConfiguration`: Receives new configuration flags from the devtools host.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -39,7 +36,7 @@ impl Actor for ThreadConfigurationActor {
         match msg_type {
             "updateConfiguration" => {
                 // TODO: Actually update configuration
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -48,17 +45,8 @@ impl Actor for ThreadConfigurationActor {
     }
 }
 
-impl ThreadConfigurationActor {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            _configuration: HashMap::new(),
-        }
-    }
-}
-
 impl ActorEncode<ActorMsg> for ThreadConfigurationActor {
-    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
-        ActorMsg { actor: self.name() }
+    fn encode(&self, name: String, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: name }
     }
 }

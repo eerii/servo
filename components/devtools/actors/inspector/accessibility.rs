@@ -26,7 +26,8 @@ struct BootstrapReply {
 #[derive(Serialize)]
 struct GetSimulatorReply {
     from: String,
-    simulator: ActorMsg,
+    #[serde(flatten)]
+    simulator: Option<ActorMsg>,
 }
 
 #[derive(Serialize)]
@@ -49,19 +50,14 @@ struct ActorMsg {
 #[derive(Serialize)]
 struct GetWalkerReply {
     from: String,
-    walker: ActorMsg,
+    #[serde(flatten)]
+    walker: Option<ActorMsg>,
 }
 
-pub struct AccessibilityActor {
-    name: String,
-}
+pub struct AccessibilityActor {}
 
 impl Actor for AccessibilityActor {
     const BASE_NAME: &str = "accessibility";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The accesibility actor can handle the following messages:
     ///
@@ -75,6 +71,7 @@ impl Actor for AccessibilityActor {
     ///   inspector Walker actor)
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -84,25 +81,26 @@ impl Actor for AccessibilityActor {
         match msg_type {
             "bootstrap" => {
                 let msg = BootstrapReply {
-                    from: self.name(),
+                    from: name,
                     state: BootstrapState { enabled: false },
                 };
                 request.reply_final(&msg)?
             },
             "getSimulator" => {
-                let simulator = SimulatorActor {
-                    name: registry.new_name::<SimulatorActor>(),
+                let mut msg = GetSimulatorReply {
+                    from: name,
+                    simulator: None,
                 };
-                let msg = GetSimulatorReply {
-                    from: self.name(),
-                    simulator: simulator.encode(registry),
-                };
-                registry.register_later(simulator);
+                registry.register_with(|name| {
+                    let actor = SimulatorActor {};
+                    msg.simulator = Some(actor.encode(name.into(), registry));
+                    actor
+                });
                 request.reply_final(&msg)?
             },
             "getTraits" => {
                 let msg = GetTraitsReply {
-                    from: self.name(),
+                    from: name,
                     traits: AccessibilityTraits {
                         tabbing_order: true,
                     },
@@ -110,14 +108,15 @@ impl Actor for AccessibilityActor {
                 request.reply_final(&msg)?
             },
             "getWalker" => {
-                let walker = AccessibleWalkerActor {
-                    name: registry.new_name::<AccessibleWalkerActor>(),
+                let mut msg = GetWalkerReply {
+                    from: name,
+                    walker: None,
                 };
-                let msg = GetWalkerReply {
-                    from: self.name(),
-                    walker: walker.encode(registry),
-                };
-                registry.register_later(walker);
+                registry.register_with(|name| {
+                    let actor = AccessibleWalkerActor {};
+                    msg.walker = Some(actor.encode(name.into(), registry));
+                    actor
+                });
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -126,46 +125,28 @@ impl Actor for AccessibilityActor {
     }
 }
 
-impl AccessibilityActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
 /// Placeholder for the simulator actor
-struct SimulatorActor {
-    name: String,
-}
+struct SimulatorActor {}
 
 impl Actor for SimulatorActor {
     const BASE_NAME: &str = "simulator";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 impl ActorEncode<ActorMsg> for SimulatorActor {
-    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
-        ActorMsg { actor: self.name() }
+    fn encode(&self, name: String, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: name }
     }
 }
 
 /// Placeholder for the accessible walker actor
-struct AccessibleWalkerActor {
-    name: String,
-}
+struct AccessibleWalkerActor {}
 
 impl Actor for AccessibleWalkerActor {
     const BASE_NAME: &str = "accessible-walker";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 impl ActorEncode<ActorMsg> for AccessibleWalkerActor {
-    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
-        ActorMsg { actor: self.name() }
+    fn encode(&self, name: String, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: name }
     }
 }

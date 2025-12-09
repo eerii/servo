@@ -131,9 +131,9 @@ pub(crate) enum Root {
     DedicatedWorker(String),
 }
 
+#[derive(Default)]
 pub(crate) struct ConsoleActor {
-    pub name: String,
-    pub root: Root,
+    pub root: Option<Root>,
     pub cached_events: RefCell<HashMap<UniqueId, Vec<CachedConsoleMessage>>>,
 }
 
@@ -142,14 +142,14 @@ impl ConsoleActor {
         &self,
         registry: &'a ActorRegistry,
     ) -> &'a GenericSender<DevtoolScriptControlMsg> {
-        match &self.root {
+        match &self.root.as_ref().unwrap() {
             Root::BrowsingContext(bc) => &registry.find::<BrowsingContextActor>(bc).script_chan,
             Root::DedicatedWorker(worker) => &registry.find::<WorkerActor>(worker).script_chan,
         }
     }
 
     fn current_unique_id(&self, registry: &ActorRegistry) -> UniqueId {
-        match &self.root {
+        match &self.root.as_ref().unwrap() {
             Root::BrowsingContext(bc) => UniqueId::Pipeline(
                 registry
                     .find::<BrowsingContextActor>(bc)
@@ -162,6 +162,7 @@ impl ConsoleActor {
 
     fn evaluate_js(
         &self,
+        name: String,
         registry: &ActorRegistry,
         msg: &Map<String, Value>,
     ) -> Result<EvaluateJSReply, ()> {
@@ -233,7 +234,7 @@ impl ConsoleActor {
 
         // TODO: Catch and return exception values from JS evaluation
         let reply = EvaluateJSReply {
-            from: self.name(),
+            from: name,
             input,
             result,
             timestamp: SystemTime::now()
@@ -260,8 +261,9 @@ impl ConsoleActor {
             .or_default()
             .push(CachedConsoleMessage::PageError(page_error.clone()));
         if id == self.current_unique_id(registry) {
-            if let Root::BrowsingContext(bc) = &self.root {
+            if let Some(Root::BrowsingContext(bc)) = &self.root {
                 registry.find::<BrowsingContextActor>(bc).resource_array(
+                    bc.clone(),
                     PageErrorWrapper { page_error },
                     "error-message".into(),
                     ResourceArrayType::Available,
@@ -285,8 +287,9 @@ impl ConsoleActor {
             .or_default()
             .push(CachedConsoleMessage::ConsoleLog(log_message.clone()));
         if id == self.current_unique_id(registry) {
-            if let Root::BrowsingContext(bc) = &self.root {
+            if let Some(Root::BrowsingContext(bc)) = &self.root {
                 registry.find::<BrowsingContextActor>(bc).resource_array(
+                    bc.clone(),
                     log_message,
                     "console-message".into(),
                     ResourceArrayType::Available,
@@ -300,12 +303,9 @@ impl ConsoleActor {
 impl Actor for ConsoleActor {
     const BASE_NAME: &str = "console";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -368,7 +368,7 @@ impl Actor for ConsoleActor {
                 }
 
                 let msg = GetCachedMessagesReply {
-                    from: self.name(),
+                    from: name,
                     messages,
                 };
                 request.reply_final(&msg)?
@@ -378,7 +378,7 @@ impl Actor for ConsoleActor {
                 // TODO: actually implement listener filters that support starting/stopping
                 let listeners = msg.get("listeners").unwrap().as_array().unwrap().to_owned();
                 let msg = StartedListenersReply {
-                    from: self.name(),
+                    from: name,
                     native_console_api: true,
                     started_listeners: listeners
                         .into_iter()
@@ -392,7 +392,7 @@ impl Actor for ConsoleActor {
             "stopListeners" => {
                 // TODO: actually implement listener filters that support starting/stopping
                 let msg = StopListenersReply {
-                    from: self.name(),
+                    from: name,
                     stopped_listeners: msg
                         .get("listeners")
                         .unwrap()
@@ -409,7 +409,7 @@ impl Actor for ConsoleActor {
             //      http://mxr.mozilla.org/mozilla-central/source/toolkit/devtools/server/actors/webconsole.js
             "autocomplete" => {
                 let msg = AutocompleteReply {
-                    from: self.name(),
+                    from: name,
                     matches: vec![],
                     match_prop: "".to_owned(),
                 };
@@ -417,14 +417,14 @@ impl Actor for ConsoleActor {
             },
 
             "evaluateJS" => {
-                let msg = self.evaluate_js(registry, msg);
+                let msg = self.evaluate_js(name, registry, msg);
                 request.reply_final(&msg)?
             },
 
             "evaluateJSAsync" => {
                 let result_id = Uuid::new_v4().to_string();
                 let early_reply = EvaluateJSAsyncReply {
-                    from: self.name(),
+                    from: name.clone(),
                     result_id: result_id.clone(),
                 };
                 // Emit an eager reply so that the client starts listening
@@ -437,9 +437,9 @@ impl Actor for ConsoleActor {
                     return Ok(());
                 }
 
-                let reply = self.evaluate_js(registry, msg).unwrap();
+                let reply = self.evaluate_js(name.clone(), registry, msg).unwrap();
                 let msg = EvaluateJSEvent {
-                    from: self.name(),
+                    from: name,
                     type_: "evaluationResult".to_owned(),
                     input: reply.input,
                     result: reply.result,
@@ -455,7 +455,7 @@ impl Actor for ConsoleActor {
 
             "setPreferences" => {
                 let msg = SetPreferencesReply {
-                    from: self.name(),
+                    from: name,
                     updated: vec![],
                 };
                 request.reply_final(&msg)?

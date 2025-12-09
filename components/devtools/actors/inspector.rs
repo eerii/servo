@@ -57,30 +57,26 @@ struct GetHighlighterReply {
 }
 
 pub struct InspectorActor {
-    pub name: String,
     pub walker: RefCell<Option<String>>,
     pub page_style: RefCell<Option<String>>,
     pub highlighter: RefCell<Option<String>>,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
-    pub browsing_context: String,
+    pub browsing_context: Option<String>,
 }
 
 impl Actor for InspectorActor {
     const BASE_NAME: &str = "inspector";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         _msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
-        let browsing_context = registry.find::<BrowsingContextActor>(&self.browsing_context);
+        let browsing_context = registry.find::<BrowsingContextActor>(&self.browsing_context.as_ref().unwrap());
         let pipeline = browsing_context.active_pipeline_id.get();
         match msg_type {
             "getWalker" => {
@@ -88,30 +84,21 @@ impl Actor for InspectorActor {
                 self.script_chan.send(GetRootNode(pipeline, tx)).unwrap();
                 let root_info = rx.recv().unwrap().ok_or(ActorError::Internal)?;
 
-                let name = self
-                    .walker
-                    .borrow()
-                    .clone()
-                    .unwrap_or_else(|| registry.new_name::<WalkerActor>());
-
                 let root =
                     root_info.encode(registry, self.script_chan.clone(), pipeline, name.clone());
 
                 if self.walker.borrow().is_none() {
-                    let walker = WalkerActor {
-                        name,
+                    let walker = registry.register_later(WalkerActor {
                         script_chan: self.script_chan.clone(),
                         pipeline,
                         root_node: root.clone(),
                         mutations: RefCell::new(vec![]),
-                    };
-                    let mut walker_name = self.walker.borrow_mut();
-                    *walker_name = Some(walker.name());
-                    registry.register_later(walker);
+                    });
+                    self.walker.replace(Some(walker));
                 }
 
                 let msg = GetWalkerReply {
-                    from: self.name(),
+                    from: name,
                     walker: WalkerMsg {
                         actor: self.walker.borrow().clone().unwrap(),
                         root,
@@ -122,18 +109,15 @@ impl Actor for InspectorActor {
 
             "getPageStyle" => {
                 if self.page_style.borrow().is_none() {
-                    let style = PageStyleActor {
-                        name: registry.new_name::<PageStyleActor>(),
+                    let page_style = registry.register_later(PageStyleActor {
                         script_chan: self.script_chan.clone(),
                         pipeline,
-                    };
-                    let mut page_style = self.page_style.borrow_mut();
-                    *page_style = Some(style.name());
-                    registry.register_later(style);
+                    });
+                    self.page_style.replace(Some(page_style));
                 }
 
                 let msg = GetPageStyleReply {
-                    from: self.name(),
+                    from: name,
                     page_style: PageStyleMsg {
                         actor: self.page_style.borrow().clone().unwrap(),
                         traits: HashMap::from([
@@ -149,7 +133,7 @@ impl Actor for InspectorActor {
 
             "supportsHighlighters" => {
                 let msg = SupportsHighlightersReply {
-                    from: self.name(),
+                    from: name,
                     value: true,
                 };
                 request.reply_final(&msg)?
@@ -157,18 +141,15 @@ impl Actor for InspectorActor {
 
             "getHighlighterByType" => {
                 if self.highlighter.borrow().is_none() {
-                    let highlighter_actor = HighlighterActor {
-                        name: registry.new_name::<HighlighterActor>(),
+                    let highlighter = registry.register_later(HighlighterActor {
                         pipeline,
                         script_sender: self.script_chan.clone(),
-                    };
-                    let mut highlighter = self.highlighter.borrow_mut();
-                    *highlighter = Some(highlighter_actor.name());
-                    registry.register_later(highlighter_actor);
+                    });
+                    self.highlighter.replace(Some(highlighter));
                 }
 
                 let msg = GetHighlighterReply {
-                    from: self.name(),
+                    from: name,
                     highlighter: HighlighterMsg {
                         actor: self.highlighter.borrow().clone().unwrap(),
                     },

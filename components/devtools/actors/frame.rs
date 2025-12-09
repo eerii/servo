@@ -17,7 +17,7 @@ use crate::protocol::ClientRequest;
 struct FrameEnvironmentReply {
     from: String,
     #[serde(flatten)]
-    environment: EnvironmentActorMsg,
+    environment: Option<EnvironmentActorMsg>,
 }
 
 #[derive(Serialize)]
@@ -53,20 +53,16 @@ pub struct FrameActorMsg {
 /// Represents an stack frame. Used by `ThreadActor` when replying to interrupt messages.
 /// <https://searchfox.org/firefox-main/source/devtools/server/actors/frame.js>
 pub struct FrameActor {
-    pub name: String,
     pub source_actor: String,
 }
 
 impl Actor for FrameActor {
     const BASE_NAME: &str = "frame";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     // https://searchfox.org/firefox-main/source/devtools/shared/specs/frame.js
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -75,15 +71,15 @@ impl Actor for FrameActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getEnvironment" => {
-                let environment = EnvironmentActor {
-                    name: registry.new_name::<EnvironmentActor>(),
-                    parent: None,
+                let mut msg = FrameEnvironmentReply {
+                    from: name,
+                    environment: None,
                 };
-                let msg = FrameEnvironmentReply {
-                    from: self.name(),
-                    environment: environment.encode(registry),
-                };
-                registry.register_later(environment);
+                registry.register_with(|name| {
+                    let actor = EnvironmentActor { parent: None };
+                    msg.environment = Some(actor.encode(name.into(), registry));
+                    actor
+                });
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -93,7 +89,7 @@ impl Actor for FrameActor {
 }
 
 impl ActorEncode<FrameActorMsg> for FrameActor {
-    fn encode(&self, _: &ActorRegistry) -> FrameActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> FrameActorMsg {
         // TODO: Handle other states
         let state = FrameState::OnStack;
         let async_cause = if let FrameState::OnStack = state {
@@ -102,7 +98,7 @@ impl ActorEncode<FrameActorMsg> for FrameActor {
             Some("await".into())
         };
         FrameActorMsg {
-            actor: self.name(),
+            actor: name,
             type_: "call".into(),
             arguments: vec![],
             async_cause,

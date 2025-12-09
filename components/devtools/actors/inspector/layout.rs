@@ -12,9 +12,7 @@ use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 use crate::{ActorMsg, StreamId};
 
-pub struct LayoutInspectorActor {
-    name: String,
-}
+pub struct LayoutInspectorActor {}
 
 #[derive(Serialize)]
 pub struct GetGridsReply {
@@ -31,10 +29,6 @@ pub struct GetCurrentFlexboxReply {
 impl Actor for LayoutInspectorActor {
     const BASE_NAME: &str = "layout";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The layout inspector actor can handle the following messages:
     ///
     /// - `getGrids`: Returns a list of CSS grids, non functional at the moment
@@ -42,6 +36,7 @@ impl Actor for LayoutInspectorActor {
     /// - `getCurrentFlexbox`: Returns the active flexbox, non functional at the moment
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -51,7 +46,7 @@ impl Actor for LayoutInspectorActor {
         match msg_type {
             "getGrids" => {
                 let msg = GetGridsReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Actually create a list of grids
                     grids: vec![],
                 };
@@ -59,7 +54,7 @@ impl Actor for LayoutInspectorActor {
             },
             "getCurrentFlexbox" => {
                 let msg = GetCurrentFlexboxReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Create and return the current flexbox object
                     flexbox: None,
                 };
@@ -73,14 +68,8 @@ impl Actor for LayoutInspectorActor {
     fn cleanup(&self, _id: StreamId) {}
 }
 
-impl LayoutInspectorActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
 impl ActorEncode<ActorMsg> for LayoutInspectorActor {
-    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
-        ActorMsg { actor: self.name() }
+    fn encode(&self, name: String, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: name }
     }
 }

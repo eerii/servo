@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::StreamId;
+use crate::actors::root::RootActor;
 use crate::protocol::{ClientRequest, JsonPacketStream};
 
 /// Error replies.
@@ -52,17 +53,16 @@ pub(crate) trait Actor: Any + Send {
     const BASE_NAME: &str;
     fn handle_message(
         &self,
+        name: String, // It has to be copied at least once for the reply.
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError> {
-        let _ = (request, registry, msg_type, msg, stream_id);
+        let _ = (name, request, registry, msg_type, msg, stream_id);
         Err(ActorError::UnrecognizedPacketType)
     }
-    // TODO: Remove this function and store the name in `ActorRegistry instead`
-    fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId) {}
 }
 
@@ -73,13 +73,13 @@ pub(crate) trait Actor: Any + Send {
 pub(crate) trait ActorDyn: Any + Send {
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError>;
-    fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId);
     fn actor_as_any(&self) -> &dyn Any;
     fn actor_as_any_mut(&mut self) -> &mut dyn Any;
@@ -88,16 +88,14 @@ pub(crate) trait ActorDyn: Any + Send {
 impl<T: Actor> ActorDyn for T {
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
     ) -> Result<(), ActorError> {
-        self.handle_message(request, registry, msg_type, msg, stream_id)
-    }
-    fn name(&self) -> String {
-        self.name()
+        self.handle_message(name, request, registry, msg_type, msg, stream_id)
     }
     fn cleanup(&self, id: StreamId) {
         self.cleanup(id)
@@ -110,8 +108,10 @@ impl<T: Actor> ActorDyn for T {
     }
 }
 
+// TODO: Implement encode for ActorMsg by default?
+// TODO: Could we get with using an &str here and setting the lifetime to the same one as ActorRegistry?
 pub(crate) trait ActorEncode<T: Serialize>: Actor {
-    fn encode(&self, registry: &ActorRegistry) -> T;
+    fn encode(&self, name: String, registry: &ActorRegistry) -> T;
 }
 
 /// A list of known, owned actors.
@@ -191,8 +191,8 @@ impl ActorRegistry {
         self.script_actors.borrow().get(&script_id).unwrap().clone()
     }
 
-    pub fn script_actor_registered(&self, script_id: String) -> bool {
-        self.script_actors.borrow().contains_key(&script_id)
+    pub fn script_actor_registered(&self, script_id: &str) -> bool {
+        self.script_actors.borrow().contains_key(script_id)
     }
 
     pub fn actor_to_script(&self, actor: String) -> String {
@@ -206,23 +206,41 @@ impl ActorRegistry {
     }
 
     /// Create a unique name based on a monotonically increasing suffix
-    pub fn new_name<T: Actor>(&self) -> String {
+    fn new_name<T: Actor>(&self) -> String {
+        // There is only one root actor
+        if T::BASE_NAME == RootActor::BASE_NAME {
+            return T::BASE_NAME.into();
+        }
         let suffix = self.next.get();
         self.next.set(suffix + 1);
         format!("{}{}", T::BASE_NAME, suffix)
     }
 
     /// Add an actor to the registry of known actors that can receive messages.
-    pub(crate) fn register<T: Actor>(&mut self, actor: T) {
-        self.actors.insert(actor.name(), Box::new(actor));
+    pub(crate) fn register<T: Actor>(&mut self, actor: T) -> String {
+        let name = self.new_name::<T>();
+        self.actors.insert(name.clone(), Box::new(actor));
+        name
     }
 
     /// Add an actor to the registry that can receive messages.
     /// It won't be available until after the next message is processed.
-    pub(crate) fn register_later<T: Actor>(&self, actor: T) {
+    pub(crate) fn register_later<T: Actor>(&self, actor: T) -> String {
+        let name = self.new_name::<T>();
         self.new_actors
             .borrow_mut()
-            .insert(actor.name(), Box::new(actor));
+            .insert(name.clone(), Box::new(actor));
+        name
+    }
+
+    /// Add an actor to the registry with a specific init function.
+    pub(crate) fn register_with<T: Actor, F: FnOnce(&str) -> T>(&self, f: F) -> String {
+        let name = self.new_name::<T>();
+        let actor = f(&name);
+        self.new_actors
+            .borrow_mut()
+            .insert(name.clone(), Box::new(actor));
+        name
     }
 
     /// Find an actor by registered name
@@ -239,7 +257,7 @@ impl ActorRegistry {
 
     /// Find an actor by registered name and return its serialization
     pub fn encode<T: ActorEncode<S>, S: Serialize>(&self, name: &str) -> S {
-        self.find::<T>(name).encode(self)
+        self.find::<T>(name).encode(name.into(), self)
     }
 
     /// Attempt to process a message as directed by its `to` property. If the actor is not found, does not support the
@@ -267,11 +285,11 @@ impl ActorRegistry {
             Some(actor) => {
                 let msg_type = msg.get("type").unwrap().as_str().unwrap();
                 if let Err(error) = ClientRequest::handle(stream, to, |req| {
-                    actor.handle_message(req, self, msg_type, msg, stream_id)
+                    actor.handle_message(to.into(), req, self, msg_type, msg, stream_id)
                 }) {
                     // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#error-packets>
                     let error = json!({
-                        "from": actor.name(), "error": error.name()
+                        "from": to, "error": error.name()
                     });
                     warn!("Sending devtools protocol error: error={error:?} request={msg:?}");
                     let _ = stream.write_json_packet(&error);

@@ -10,25 +10,14 @@ use crate::StreamId;
 use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 
-pub struct PreferenceActor {
-    name: String,
-}
-
-impl PreferenceActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-}
+pub struct PreferenceActor {}
 
 impl Actor for PreferenceActor {
     const BASE_NAME: &str = "preference";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -44,9 +33,9 @@ impl Actor for PreferenceActor {
         // TODO: Map more preferences onto their Servo values.
         match key {
             "dom.serviceWorkers.enabled" => {
-                self.write_bool(request, pref!(dom_serviceworker_enabled))
+                self.write_bool(name, request, pref!(dom_serviceworker_enabled))
             },
-            _ => self.handle_missing_preference(request, msg_type),
+            _ => self.handle_missing_preference(name, request, msg_type),
         }
     }
 }
@@ -54,19 +43,20 @@ impl Actor for PreferenceActor {
 impl PreferenceActor {
     fn handle_missing_preference(
         &self,
+        name: String,
         request: ClientRequest,
         msg_type: &str,
     ) -> Result<(), ActorError> {
         match msg_type {
-            "getBoolPref" => self.write_bool(request, false),
-            "getCharPref" => self.write_char(request, "".into()),
-            "getIntPref" => self.write_int(request, 0),
-            "getFloatPref" => self.write_float(request, 0.),
+            "getBoolPref" => self.write_bool(name, request, false),
+            "getCharPref" => self.write_char(name, request, "".into()),
+            "getIntPref" => self.write_int(name, request, 0),
+            "getFloatPref" => self.write_float(name, request, 0.),
             _ => Err(ActorError::UnrecognizedPacketType),
         }
     }
 
-    fn write_bool(&self, request: ClientRequest, pref_value: bool) -> Result<(), ActorError> {
+    fn write_bool(&self, name: String, request: ClientRequest, pref_value: bool) -> Result<(), ActorError> {
         #[derive(Serialize)]
         struct BoolReply {
             from: String,
@@ -74,13 +64,13 @@ impl PreferenceActor {
         }
 
         let reply = BoolReply {
-            from: self.name.clone(),
+            from: name,
             value: pref_value,
         };
         request.reply_final(&reply)
     }
 
-    fn write_char(&self, request: ClientRequest, pref_value: String) -> Result<(), ActorError> {
+    fn write_char(&self, name: String, request: ClientRequest, pref_value: String) -> Result<(), ActorError> {
         #[derive(Serialize)]
         struct CharReply {
             from: String,
@@ -88,13 +78,13 @@ impl PreferenceActor {
         }
 
         let reply = CharReply {
-            from: self.name.clone(),
+            from: name,
             value: pref_value,
         };
         request.reply_final(&reply)
     }
 
-    fn write_int(&self, request: ClientRequest, pref_value: i64) -> Result<(), ActorError> {
+    fn write_int(&self, name: String, request: ClientRequest, pref_value: i64) -> Result<(), ActorError> {
         #[derive(Serialize)]
         struct IntReply {
             from: String,
@@ -102,13 +92,13 @@ impl PreferenceActor {
         }
 
         let reply = IntReply {
-            from: self.name.clone(),
+            from: name,
             value: pref_value,
         };
         request.reply_final(&reply)
     }
 
-    fn write_float(&self, request: ClientRequest, pref_value: f64) -> Result<(), ActorError> {
+    fn write_float(&self, name: String, request: ClientRequest, pref_value: f64) -> Result<(), ActorError> {
         #[derive(Serialize)]
         struct FloatReply {
             from: String,
@@ -116,7 +106,7 @@ impl PreferenceActor {
         }
 
         let reply = FloatReply {
-            from: self.name.clone(),
+            from: name,
             value: pref_value,
         };
         request.reply_final(&reply)

@@ -34,12 +34,13 @@ pub(crate) fn handle_network_event(
         NetworkEvent::HttpRequest(httprequest) => {
             actor.add_request(httprequest);
 
-            let event_actor = actor.event_actor();
+            let event_actor = actor.event_actor(netevent_actor_name.clone());
             let resource_updates = actor.resource_updates();
             let watcher_actor = actors.find::<WatcherActor>(&watcher_name);
 
             for stream in &mut connections {
                 watcher_actor.resource_array(
+                    watcher_name.clone(),
                     event_actor.clone(),
                     "network-event".to_string(),
                     ResourceArrayType::Available,
@@ -48,6 +49,7 @@ pub(crate) fn handle_network_event(
 
                 // Also push initial resource update (request headers, cookies)
                 watcher_actor.resource_array(
+                    watcher_name.clone(),
                     resource_updates.clone(),
                     "network-event".to_string(),
                     ResourceArrayType::Updated,
@@ -63,6 +65,7 @@ pub(crate) fn handle_network_event(
 
             for stream in &mut connections {
                 watcher_actor.resource_array(
+                    watcher_name.clone(),
                     resource.clone(),
                     "network-event".to_string(),
                     ResourceArrayType::Updated,
@@ -78,6 +81,7 @@ pub(crate) fn handle_network_event(
 
             for stream in &mut connections {
                 watcher_actor.resource_array(
+                    watcher_name.clone(),
                     resource.clone(),
                     "network-event".to_string(),
                     ResourceArrayType::Updated,

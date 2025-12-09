@@ -30,22 +30,17 @@ pub struct ProcessActorMsg {
     traits: DescriptorTraits,
 }
 
-pub struct ProcessActor {
-    name: String,
-}
+pub struct ProcessActor {}
 
 impl Actor for ProcessActor {
     const BASE_NAME: &str = "process";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The process actor can handle the following messages:
     ///
     /// - `listWorkers`: Returns a list of web workers, not supported yet.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -55,7 +50,7 @@ impl Actor for ProcessActor {
         match msg_type {
             "listWorkers" => {
                 let reply = ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     workers: vec![],
                 };
                 request.reply_final(&reply)?
@@ -67,16 +62,10 @@ impl Actor for ProcessActor {
     }
 }
 
-impl ProcessActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
 impl ActorEncode<ProcessActorMsg> for ProcessActor {
-    fn encode(&self, _: &ActorRegistry) -> ProcessActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> ProcessActorMsg {
         ProcessActorMsg {
-            actor: self.name(),
+            actor: name,
             id: 0,
             is_parent: true,
             is_windowless_parent: false,

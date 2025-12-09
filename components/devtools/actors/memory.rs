@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 
-use crate::actor::{Actor, ActorRegistry};
+use crate::actor::Actor;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,30 +21,13 @@ pub struct TimelineMemoryReply {
     non_js_milliseconds: f64,
 }
 
-pub struct MemoryActor {
-    pub name: String,
-}
+pub struct MemoryActor {}
 
 impl Actor for MemoryActor {
     const BASE_NAME: &str = "memory";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 impl MemoryActor {
-    /// return name of actor
-    pub fn create(registry: &ActorRegistry) -> String {
-        let actor_name = registry.new_name::<Self>();
-        let actor = MemoryActor {
-            name: actor_name.clone(),
-        };
-
-        registry.register_later(actor);
-        actor_name
-    }
-
     pub fn measure(&self) -> TimelineMemoryReply {
         TimelineMemoryReply {
             js_object_size: 1,

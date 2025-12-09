@@ -11,8 +11,7 @@ use crate::protocol::ClientRequest;
 const INITIAL_LENGTH: usize = 500;
 
 pub struct LongStringActor {
-    name: String,
-    full_string: String,
+    pub full_string: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -35,12 +34,9 @@ struct SubstringReply {
 impl Actor for LongStringActor {
     const BASE_NAME: &str = "long-string";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -61,7 +57,7 @@ impl Actor for LongStringActor {
                     .take(end - start)
                     .collect();
                 let reply = SubstringReply {
-                    from: self.name(),
+                    from: name,
                     substring,
                 };
                 request.reply_final(&reply)?
@@ -73,15 +69,10 @@ impl Actor for LongStringActor {
 }
 
 impl LongStringActor {
-    pub fn new(registry: &ActorRegistry, full_string: String) -> Self {
-        let name = registry.new_name::<Self>();
-        LongStringActor { name, full_string }
-    }
-
-    pub fn long_string_obj(&self) -> LongStringObj {
+    pub fn long_string_obj(&self, name: String) -> LongStringObj {
         LongStringObj {
             type_: "longString".to_string(),
-            actor: self.name.clone(),
+            actor: name,
             length: self.full_string.len(),
             initial: self.full_string.chars().take(INITIAL_LENGTH).collect(),
         }

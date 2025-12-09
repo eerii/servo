@@ -6,19 +6,14 @@ use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 use crate::{ActorMsg, EmptyReplyMsg};
 
-pub struct BreakpointListActor {
-    name: String,
-}
+pub struct BreakpointListActor {}
 
 impl Actor for BreakpointListActor {
     const BASE_NAME: &str = "breakpoint-list";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &crate::actor::ActorRegistry,
         msg_type: &str,
@@ -30,15 +25,15 @@ impl Actor for BreakpointListActor {
             // Seems to be infallible, unlike the thread actor’s `setBreakpoint`.
             // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#breakpoints>
             "setBreakpoint" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "setActiveEventBreakpoints" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "removeBreakpoint" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -47,14 +42,8 @@ impl Actor for BreakpointListActor {
     }
 }
 
-impl BreakpointListActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
 impl ActorEncode<ActorMsg> for BreakpointListActor {
-    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
-        ActorMsg { actor: self.name() }
+    fn encode(&self, name: String, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: name }
     }
 }

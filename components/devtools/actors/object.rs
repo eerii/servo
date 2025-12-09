@@ -28,16 +28,11 @@ pub struct ObjectActorMsg {
 }
 
 pub struct ObjectActor {
-    pub name: String,
     pub _uuid: String,
 }
 
 impl Actor for ObjectActor {
     const BASE_NAME: &str = "object";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     // TODO: Handle messages
     // https://searchfox.org/firefox-main/source/devtools/shared/specs/object.js
@@ -45,17 +40,12 @@ impl Actor for ObjectActor {
 
 impl ObjectActor {
     pub fn register(registry: &ActorRegistry, uuid: String) -> String {
-        if !registry.script_actor_registered(uuid.clone()) {
-            let name = registry.new_name::<Self>();
-            let actor = ObjectActor {
-                name: name.clone(),
+        if !registry.script_actor_registered(&uuid) {
+            let object = registry.register_later(ObjectActor {
                 _uuid: uuid.clone(),
-            };
-
-            registry.register_script_actor(uuid, name.clone());
-            registry.register_later(actor);
-
-            name
+            });
+            registry.register_script_actor(uuid, object.clone());
+            object
         } else {
             registry.script_to_actor(uuid)
         }
@@ -63,10 +53,10 @@ impl ObjectActor {
 }
 
 impl ActorEncode<ObjectActorMsg> for ObjectActor {
-    fn encode(&self, _: &ActorRegistry) -> ObjectActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> ObjectActorMsg {
         // TODO: Review hardcoded values here
         ObjectActorMsg {
-            actor: self.name(),
+            actor: name,
             type_: "object".into(),
             class: "Window".into(),
             own_property_length: 0,

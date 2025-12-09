@@ -58,28 +58,22 @@ pub struct EnvironmentActorMsg {
 /// Referenced by `FrameActor` when replying to `getEnvironment` messages.
 /// <https://searchfox.org/firefox-main/source/devtools/server/actors/environment.js>
 pub struct EnvironmentActor {
-    pub name: String,
     pub parent: Option<String>,
 }
 
 impl Actor for EnvironmentActor {
     const BASE_NAME: &str = "environment";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 impl ActorEncode<EnvironmentActorMsg> for EnvironmentActor {
-    fn encode(&self, registry: &ActorRegistry) -> EnvironmentActorMsg {
+    fn encode(&self, name: String, registry: &ActorRegistry) -> EnvironmentActorMsg {
         let parent = self
             .parent
             .as_ref()
-            .map(|p| registry.find::<EnvironmentActor>(p))
-            .map(|p| Box::new(p.encode(registry)));
+            .map(|p| Box::new(registry.encode::<EnvironmentActor, _>(p)));
         // TODO: Change hardcoded values.
         EnvironmentActorMsg {
-            actor: self.name(),
+            actor: name,
             type_: EnvironmentType::Function,
             scope_kind: EnvironmentScope::Function,
             parent,

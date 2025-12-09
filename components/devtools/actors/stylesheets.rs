@@ -16,18 +16,14 @@ struct GetStyleSheetsReply {
     style_sheets: Vec<u32>, // TODO: real JSON structure.
 }
 
-pub struct StyleSheetsActor {
-    pub name: String,
-}
+pub struct StyleSheetsActor {}
 
 impl Actor for StyleSheetsActor {
     const BASE_NAME: &str = "stylesheets";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -37,7 +33,7 @@ impl Actor for StyleSheetsActor {
         match msg_type {
             "getStyleSheets" => {
                 let msg = GetStyleSheetsReply {
-                    from: self.name(),
+                    from: name,
                     style_sheets: vec![],
                 };
                 request.reply_final(&msg)?
@@ -46,11 +42,5 @@ impl Actor for StyleSheetsActor {
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
-    }
-}
-
-impl StyleSheetsActor {
-    pub fn new(name: String) -> StyleSheetsActor {
-        StyleSheetsActor { name }
     }
 }

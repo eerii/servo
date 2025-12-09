@@ -5,6 +5,7 @@
 //! Liberally derived from the [Firefox JS implementation](http://mxr.mozilla.org/mozilla-central/source/toolkit/devtools/server/actors/webconsole.js).
 //! Handles interaction with the remote web console on network events (HTTP requests, responses) in Servo.
 
+use std::cell::RefCell;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::engine::Engine;
@@ -27,7 +28,6 @@ use crate::network_handler::Cause;
 use crate::protocol::ClientRequest;
 
 pub struct NetworkEventActor {
-    pub name: String,
     pub resource_id: u64,
     pub is_xhr: bool,
     pub request_url: String,
@@ -246,12 +246,9 @@ struct GetSecurityInfoReply {
 impl Actor for NetworkEventActor {
     const BASE_NAME: &str = "network-event";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -277,7 +274,7 @@ impl Actor for NetworkEventActor {
                 }
 
                 let msg = GetRequestHeadersReply {
-                    from: self.name(),
+                    from: name,
                     headers,
                     header_size: headers_size,
                     raw_headers: raw_headers_string,
@@ -291,14 +288,14 @@ impl Actor for NetworkEventActor {
                     .map(|msg| msg.cookies.clone())
                     .unwrap_or_default();
                 let msg = GetRequestCookiesReply {
-                    from: self.name(),
+                    from: name,
                     cookies,
                 };
                 request.reply_final(&msg)?
             },
             "getRequestPostData" => {
                 let msg = GetRequestPostDataReply {
-                    from: self.name(),
+                    from: name,
                     post_data: self.request_body.clone(),
                     post_data_discarded: self.request_body.is_none(),
                 };
@@ -321,7 +318,7 @@ impl Actor for NetworkEventActor {
                         raw_headers_string.push_str("\r\n");
                     }
                     let msg = GetResponseHeadersReply {
-                        from: self.name(),
+                        from: name,
                         headers,
                         header_size: headers_size,
                         raw_headers: raw_headers_string,
@@ -339,7 +336,7 @@ impl Actor for NetworkEventActor {
                     .map(|msg| msg.cookies.clone())
                     .unwrap_or_default();
                 let msg = GetResponseCookiesReply {
-                    from: self.name(),
+                    from: name,
                     cookies,
                 };
                 request.reply_final(&msg)?
@@ -366,16 +363,18 @@ impl Actor for NetworkEventActor {
                     let size = body.len();
 
                     if Self::is_text_mime(&mime_type) {
-                        let full_str = String::from_utf8_lossy(body).to_string();
-
                         // Queue a LongStringActor for this body
-                        let long_string_actor = LongStringActor::new(registry, full_str);
-                        let long_string_obj = long_string_actor.long_string_obj();
-                        registry.register_later(long_string_actor);
+                        let obj = RefCell::new(None);
+                        let _ = registry.register_with(|name| {
+                            let full_string = String::from_utf8_lossy(body).to_string();
+                            let actor = LongStringActor { full_string };
+                            obj.replace(Some(actor.long_string_obj(name.into())));
+                            actor
+                        });
 
                         ResponseContentObj {
                             mime_type,
-                            text: serde_json::to_value(long_string_obj).unwrap(),
+                            text: serde_json::to_value(obj.into_inner()).unwrap(),
                             body_size,
                             decoded_body_size,
                             size,
@@ -398,7 +397,7 @@ impl Actor for NetworkEventActor {
                     }
                 });
                 let msg = GetResponseContentReply {
-                    from: self.name(),
+                    from: name,
                     content: content_obj,
                     content_discarded: self.response_body.is_none(),
                 };
@@ -411,7 +410,7 @@ impl Actor for NetworkEventActor {
                 let total = timings_obj.connect + timings_obj.send;
                 // TODO: Send the correct values for all these fields.
                 let msg = GetEventTimingsReply {
-                    from: self.name(),
+                    from: name,
                     timings: timings_obj,
                     total_time: total,
                 };
@@ -420,7 +419,7 @@ impl Actor for NetworkEventActor {
             "getSecurityInfo" => {
                 // TODO: Send the correct values for securityInfo.
                 let msg = GetSecurityInfoReply {
-                    from: self.name(),
+                    from: name,
                     security_info: SecurityInfo {
                         state: "insecure".to_owned(),
                     },
@@ -434,9 +433,8 @@ impl Actor for NetworkEventActor {
 }
 
 impl NetworkEventActor {
-    pub fn new(name: String, resource_id: u64, watcher_name: String) -> NetworkEventActor {
+    pub fn new(resource_id: u64, watcher_name: String) -> NetworkEventActor {
         NetworkEventActor {
-            name,
             resource_id,
             is_xhr: false,
             request_url: String::new(),
@@ -494,7 +492,7 @@ impl NetworkEventActor {
         self.cache_details = Some(Self::cache_details(&response));
     }
 
-    pub fn event_actor(&self) -> EventActor {
+    pub fn event_actor(&self, name: String) -> EventActor {
         // TODO: Send the correct values for startedDateTime, isXHR, private
 
         let started_datetime_rfc3339 = match Local.timestamp_millis_opt(
@@ -509,7 +507,7 @@ impl NetworkEventActor {
         };
 
         EventActor {
-            actor: self.name(),
+            actor: name,
             resource_id: self.resource_id,
             url: self.request_url.clone(),
             method: format!("{}", self.request_method),

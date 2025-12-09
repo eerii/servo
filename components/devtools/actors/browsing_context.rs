@@ -25,6 +25,7 @@ use crate::actors::inspector::InspectorActor;
 use crate::actors::inspector::accessibility::AccessibilityActor;
 use crate::actors::inspector::css_properties::CssPropertiesActor;
 use crate::actors::reflow::ReflowActor;
+use crate::actors::root::RootActor;
 use crate::actors::stylesheets::StyleSheetsActor;
 use crate::actors::tab::TabDescriptorActor;
 use crate::actors::thread::ThreadActor;
@@ -132,7 +133,6 @@ pub struct BrowsingContextActorMsg {
 /// view. To this extent, it contains a watcher actor that helps when communicating with the host,
 /// as well as resource actors that each perform one debugging function.
 pub(crate) struct BrowsingContextActor {
-    pub name: String,
     pub title: RefCell<String>,
     pub url: RefCell<String>,
     /// This corresponds to webview_id
@@ -153,21 +153,14 @@ pub(crate) struct BrowsingContextActor {
     pub watcher: String,
 }
 
-impl ResourceAvailable for BrowsingContextActor {
-    fn actor_name(&self) -> String {
-        self.name.clone()
-    }
-}
+impl ResourceAvailable for BrowsingContextActor {}
 
 impl Actor for BrowsingContextActor {
     const BASE_NAME: &str = "target";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -177,12 +170,12 @@ impl Actor for BrowsingContextActor {
         match msg_type {
             "listFrames" => {
                 // TODO: Find out what needs to be listed here
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "listWorkers" => {
                 request.reply_final(&ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     // TODO: Find out what needs to be listed here
                     workers: vec![],
                 })?
@@ -204,7 +197,7 @@ impl Actor for BrowsingContextActor {
 
 impl BrowsingContextActor {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub(crate) fn register(
         console: String,
         browser_id: DevtoolsBrowserId,
         browsing_context_id: DevtoolsBrowsingContextId,
@@ -213,15 +206,14 @@ impl BrowsingContextActor {
         outer_window_id: DevtoolsOuterWindowId,
         script_sender: GenericSender<DevtoolScriptControlMsg>,
         actors: &mut ActorRegistry,
-    ) -> BrowsingContextActor {
-        let name = actors.new_name::<Self>();
+    ) -> String {
         let DevtoolsPageInfo {
             title,
             url,
             is_top_level_global,
         } = page_info;
 
-        let accessibility = AccessibilityActor::new(actors.new_name::<AccessibilityActor>());
+        let accessibility = actors.register(AccessibilityActor {});
 
         let properties = (|| {
             let (properties_sender, properties_receiver) = generic_channel::channel()?;
@@ -229,34 +221,37 @@ impl BrowsingContextActor {
             properties_receiver.recv().ok()
         })()
         .unwrap_or_default();
-        let css_properties =
-            CssPropertiesActor::new(actors.new_name::<CssPropertiesActor>(), properties);
+        let css_properties = actors.register(CssPropertiesActor { properties });
 
-        let inspector = InspectorActor {
-            name: actors.new_name::<InspectorActor>(),
+        let inspector = actors.register(InspectorActor {
             walker: RefCell::new(None),
             page_style: RefCell::new(None),
             highlighter: RefCell::new(None),
             script_chan: script_sender.clone(),
-            browsing_context: name.clone(),
-        };
+            browsing_context: None,
+        });
 
-        let reflow = ReflowActor::new(actors.new_name::<ReflowActor>());
+        let reflow = actors.register(ReflowActor {});
 
-        let style_sheets = StyleSheetsActor::new(actors.new_name::<StyleSheetsActor>());
+        let style_sheets = actors.register(StyleSheetsActor {});
 
-        let tabdesc = TabDescriptorActor::new(actors, name.clone(), is_top_level_global);
+        let tab_descriptor = actors.register(TabDescriptorActor {
+            browsing_context: None,
+            is_top_level_global,
+        });
+        let root = actors.find_mut::<RootActor>(RootActor::BASE_NAME);
+        root.tabs.push(tab_descriptor.clone());
 
-        let thread = ThreadActor::new(actors.new_name::<ThreadActor>());
+        // TODO: Is this duplicated from lib?
+        let thread = actors.register(ThreadActor::default());
 
         let watcher = WatcherActor::new(
             actors,
-            name.clone(),
             SessionContext::new(SessionContextType::BrowserElement),
         );
+        let watcher = actors.register(watcher);
 
-        let target = BrowsingContextActor {
-            name,
+        let target = actors.register(BrowsingContextActor {
             script_chan: script_sender,
             title: RefCell::new(title),
             url: RefCell::new(url.into_string()),
@@ -264,31 +259,25 @@ impl BrowsingContextActor {
             active_outer_window_id: Cell::new(outer_window_id),
             browser_id,
             browsing_context_id,
-            accessibility: accessibility.name(),
+            accessibility,
             console,
-            css_properties: css_properties.name(),
-            inspector: inspector.name(),
-            reflow: reflow.name(),
+            css_properties,
+            inspector: inspector.clone(),
+            reflow,
             streams: RefCell::new(HashMap::new()),
-            style_sheets: style_sheets.name(),
-            _tab: tabdesc.name(),
-            thread: thread.name(),
-            watcher: watcher.name(),
-        };
-
-        actors.register(accessibility);
-        actors.register(css_properties);
-        actors.register(inspector);
-        actors.register(reflow);
-        actors.register(style_sheets);
-        actors.register(tabdesc);
-        actors.register(thread);
-        actors.register(watcher);
+            style_sheets,
+            _tab: tab_descriptor.clone(),
+            thread,
+            watcher: watcher.clone(),
+        });
+        actors.find_mut::<InspectorActor>(&inspector).browsing_context = Some(target.clone());
+        actors.find_mut::<TabDescriptorActor>(&tab_descriptor).browsing_context = Some(target.clone());
+        actors.find_mut::<WatcherActor>(&watcher).browsing_context = Some(target.clone());
 
         target
     }
 
-    pub(crate) fn navigate(&self, state: NavigationState, id_map: &mut IdMap) {
+    pub(crate) fn navigate(&self, name: String, state: NavigationState, id_map: &mut IdMap) {
         let (pipeline_id, title, url, state) = match state {
             NavigationState::Start(url) => (None, None, url, "start"),
             NavigationState::Stop(pipeline, info) => {
@@ -306,7 +295,7 @@ impl BrowsingContextActor {
         }
 
         let msg = TabNavigated {
-            from: self.name(),
+            from: name,
             type_: "tabNavigated".to_owned(),
             url: url.as_str().to_owned(),
             title,
@@ -327,9 +316,9 @@ impl BrowsingContextActor {
         *self.title.borrow_mut() = title;
     }
 
-    pub(crate) fn frame_update(&self, request: &mut ClientRequest) {
+    pub(crate) fn frame_update(&self, name: String, request: &mut ClientRequest) {
         let _ = request.write_json_packet(&FrameUpdateReply {
-            from: self.name(),
+            from: name,
             type_: "frameUpdate".into(),
             frames: vec![FrameUpdateMsg {
                 id: self.browsing_context_id.value(),
@@ -348,9 +337,9 @@ impl BrowsingContextActor {
 }
 
 impl ActorEncode<BrowsingContextActorMsg> for BrowsingContextActor {
-    fn encode(&self, _: &ActorRegistry) -> BrowsingContextActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> BrowsingContextActorMsg {
         BrowsingContextActorMsg {
-            actor: self.name(),
+            actor: name,
             traits: BrowsingContextTraits {
                 is_browsing_context: true,
                 frames: true,

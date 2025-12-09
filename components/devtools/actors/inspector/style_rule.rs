@@ -79,17 +79,12 @@ pub struct StyleRuleActorMsg {
 }
 
 pub struct StyleRuleActor {
-    name: String,
-    node: String,
-    selector: Option<(String, usize)>,
+    pub node: String,
+    pub selector: Option<(String, usize)>,
 }
 
 impl Actor for StyleRuleActor {
     const BASE_NAME: &str = "style-rule";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The style rule configuration actor can handle the following messages:
     ///
@@ -99,6 +94,7 @@ impl Actor for StyleRuleActor {
     ///   when returning the list of rules.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -132,7 +128,7 @@ impl Actor for StyleRuleActor {
                     ))
                     .map_err(|_| ActorError::Internal)?;
 
-                request.reply_final(&self.encode(registry))?
+                request.reply_final(&self.encode(name, registry))?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
@@ -141,15 +137,7 @@ impl Actor for StyleRuleActor {
 }
 
 impl StyleRuleActor {
-    pub fn new(name: String, node: String, selector: Option<(String, usize)>) -> Self {
-        Self {
-            name,
-            node,
-            selector,
-        }
-    }
-
-    pub fn applied(&self, registry: &ActorRegistry) -> Option<AppliedRule> {
+    pub fn applied(&self, name: String, registry: &ActorRegistry) -> Option<AppliedRule> {
         let node = registry.find::<NodeActor>(&self.node);
         let walker = registry.find::<WalkerActor>(&node.walker);
 
@@ -184,7 +172,7 @@ impl StyleRuleActor {
         let style = style_receiver.recv().ok()??;
 
         Some(AppliedRule {
-            actor: self.name(),
+            actor: name,
             ancestor_data: vec![], // TODO: Fill with hierarchy
             authored_text: "".into(),
             css_text: "".into(), // TODO: Specify the css text
@@ -250,10 +238,10 @@ impl StyleRuleActor {
 }
 
 impl ActorEncode<StyleRuleActorMsg> for StyleRuleActor {
-    fn encode(&self, registry: &ActorRegistry) -> StyleRuleActorMsg {
+    fn encode(&self, name: String, registry: &ActorRegistry) -> StyleRuleActorMsg {
         StyleRuleActorMsg {
-            from: self.name(),
-            rule: self.applied(registry),
+            from: name.clone(),
+            rule: self.applied(name, registry),
         }
     }
 }

@@ -28,7 +28,6 @@ pub enum WorkerType {
 }
 
 pub(crate) struct WorkerActor {
-    pub name: String,
     pub console: String,
     pub thread: String,
     pub worker_id: WorkerId,
@@ -38,21 +37,14 @@ pub(crate) struct WorkerActor {
     pub streams: RefCell<HashMap<StreamId, TcpStream>>,
 }
 
-impl ResourceAvailable for WorkerActor {
-    fn actor_name(&self) -> String {
-        self.name.clone()
-    }
-}
+impl ResourceAvailable for WorkerActor {}
 
 impl Actor for WorkerActor {
     const BASE_NAME: &str = "worker";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -62,7 +54,7 @@ impl Actor for WorkerActor {
         match msg_type {
             "attach" => {
                 let msg = AttachedReply {
-                    from: self.name(),
+                    from: name,
                     type_: "attached".to_owned(),
                     url: self.url.as_str().to_owned(),
                 };
@@ -79,7 +71,7 @@ impl Actor for WorkerActor {
 
             "connect" => {
                 let msg = ConnectReply {
-                    from: self.name(),
+                    from: name,
                     type_: "connected".to_owned(),
                     thread_actor: self.thread.clone(),
                     console_actor: self.console.clone(),
@@ -90,7 +82,7 @@ impl Actor for WorkerActor {
 
             "detach" => {
                 let msg = DetachedReply {
-                    from: self.name(),
+                    from: name,
                     type_: "detached".to_string(),
                 };
                 self.cleanup(stream_id);
@@ -161,9 +153,9 @@ pub(crate) struct WorkerActorMsg {
 }
 
 impl ActorEncode<WorkerActorMsg> for WorkerActor {
-    fn encode(&self, _: &ActorRegistry) -> WorkerActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> WorkerActorMsg {
         WorkerActorMsg {
-            actor: self.name(),
+            actor: name,
             console_actor: self.console.clone(),
             thread_actor: self.thread.clone(),
             id: self.worker_id.0.to_string(),

@@ -6,7 +6,6 @@
 //! properties applied, including the attributes and layout of each element.
 
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::iter::once;
 
 use base::generic_channel::{self, GenericSender};
@@ -90,17 +89,12 @@ pub struct PageStyleMsg {
 }
 
 pub struct PageStyleActor {
-    pub name: String,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
     pub pipeline: PipelineId,
 }
 
 impl Actor for PageStyleActor {
     const BASE_NAME: &str = "page-style";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The page style actor can handle the following messages:
     ///
@@ -115,6 +109,7 @@ impl Actor for PageStyleActor {
     /// - `isPositionEditable`: Informs whether you can change a style property in the inspector.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -122,10 +117,10 @@ impl Actor for PageStyleActor {
         _id: StreamId,
     ) -> Result<(), ActorError> {
         match msg_type {
-            "getApplied" => self.get_applied(request, msg, registry),
-            "getComputed" => self.get_computed(request, msg, registry),
-            "getLayout" => self.get_layout(request, msg, registry),
-            "isPositionEditable" => self.is_position_editable(request),
+            "getApplied" => self.get_applied(name, request, msg, registry),
+            "getComputed" => self.get_computed(name, request, msg, registry),
+            "getLayout" => self.get_layout(name, request, msg, registry),
+            "isPositionEditable" => self.is_position_editable(name, request),
             _ => Err(ActorError::UnrecognizedPacketType),
         }
     }
@@ -134,6 +129,7 @@ impl Actor for PageStyleActor {
 impl PageStyleActor {
     fn get_applied(
         &self,
+        name: String,
         request: ClientRequest,
         msg: &Map<String, Value>,
         registry: &ActorRegistry,
@@ -181,31 +177,22 @@ impl PageStyleActor {
             once(("".into(), usize::MAX))
                 .chain(selectors)
                 .filter_map(move |selector| {
-                    let rule = match node_actor.style_rules.borrow_mut().entry(selector) {
-                        Entry::Vacant(e) => {
-                            let name = registry.new_name::<StyleRuleActor>();
-                            let actor = StyleRuleActor::new(
-                                name.clone(),
-                                node_actor.name(),
-                                (!e.key().0.is_empty()).then_some(e.key().clone()),
-                            );
-                            let rule = actor.applied(registry)?;
+                    let mut rules = node_actor.style_rules.borrow_mut();
+                    let style_rule = rules.entry(selector).or_insert_with_key(|key| {
+                        registry.register_later(StyleRuleActor {
+                            node: node.actor.clone(),
+                            selector: (key.0.is_empty()).then_some(key.clone()),
+                        })
+                    });
 
-                            registry.register_later(actor);
-                            e.insert(name);
-                            rule
-                        },
-                        Entry::Occupied(e) => {
-                            let actor = registry.find::<StyleRuleActor>(e.get());
-                            actor.applied(registry)?
-                        },
-                    };
-                    if inherited.is_some() && rule.declarations.is_empty() {
+                    let actor = registry.find::<StyleRuleActor>(style_rule);
+                    let applied_rule = actor.applied(style_rule.clone(), registry)?;
+                    if inherited.is_some() && applied_rule.declarations.is_empty() {
                         return None;
                     }
 
                     Some(AppliedEntry {
-                        rule,
+                        rule: applied_rule,
                         // TODO: Handle pseudo elements
                         pseudo_element: None,
                         is_system: false,
@@ -216,13 +203,14 @@ impl PageStyleActor {
         .collect();
         let msg = GetAppliedReply {
             entries,
-            from: self.name(),
+            from: name,
         };
         request.reply_final(&msg)
     }
 
     fn get_computed(
         &self,
+        name: String,
         request: ClientRequest,
         msg: &Map<String, Value>,
         registry: &ActorRegistry,
@@ -233,34 +221,28 @@ impl PageStyleActor {
             .as_str()
             .ok_or(ActorError::BadParameterType)?;
         let node_actor = registry.find::<NodeActor>(target);
-        let computed = (|| match node_actor
-            .style_rules
-            .borrow_mut()
+
+        let mut rules = node_actor.style_rules.borrow_mut();
+        let style_rule = rules
             .entry(("".into(), usize::MAX))
-        {
-            Entry::Vacant(e) => {
-                let name = registry.new_name::<StyleRuleActor>();
-                let actor = StyleRuleActor::new(name.clone(), target.into(), None);
-                let computed = actor.computed(registry)?;
-                registry.register_later(actor);
-                e.insert(name);
-                Some(computed)
-            },
-            Entry::Occupied(e) => {
-                let actor = registry.find::<StyleRuleActor>(e.get());
-                Some(actor.computed(registry)?)
-            },
-        })()
-        .unwrap_or_default();
+            .or_insert(registry.register_later(StyleRuleActor {
+                node: target.into(),
+                selector: None,
+            }));
+
+        let actor = registry.find::<StyleRuleActor>(style_rule);
+        let computed = actor.computed(registry).unwrap_or_default();
+
         let msg = GetComputedReply {
             computed,
-            from: self.name(),
+            from: name,
         };
         request.reply_final(&msg)
     }
 
     fn get_layout(
         &self,
+        name: String,
         request: ClientRequest,
         msg: &Map<String, Value>,
         registry: &ActorRegistry,
@@ -310,7 +292,7 @@ impl PageStyleActor {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let msg = GetLayoutReply {
-            from: self.name(),
+            from: name,
             display,
             position,
             z_index,
@@ -354,9 +336,9 @@ impl PageStyleActor {
         request.reply_final(&msg)
     }
 
-    fn is_position_editable(&self, request: ClientRequest) -> Result<(), ActorError> {
+    fn is_position_editable(&self, name: String, request: ClientRequest) -> Result<(), ActorError> {
         let msg = IsPositionEditableReply {
-            from: self.name(),
+            from: name,
             value: false,
         };
         request.reply_final(&msg)

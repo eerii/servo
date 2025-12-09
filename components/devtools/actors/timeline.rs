@@ -185,12 +185,9 @@ impl TimelineActor {
 impl Actor for TimelineActor {
     const BASE_NAME: &str = "timeline";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -216,24 +213,29 @@ impl Actor for TimelineActor {
                 // init memory actor
                 if let Some(with_memory) = msg.get("withMemory") {
                     if let Some(true) = with_memory.as_bool() {
-                        *self.memory_actor.borrow_mut() = Some(MemoryActor::create(registry));
+                        *self.memory_actor.borrow_mut() = Some(registry.register_later(MemoryActor {}));
                     }
                 }
 
                 // init framerate actor
                 if let Some(with_ticks) = msg.get("withTicks") {
                     if let Some(true) = with_ticks.as_bool() {
-                        let framerate_actor = Some(FramerateActor::create(
-                            registry,
-                            self.pipeline_id,
-                            self.script_sender.clone(),
-                        ));
-                        *self.framerate_actor.borrow_mut() = framerate_actor;
+                        let framerate_actor = registry.register_with(|name| {
+                            let mut actor = FramerateActor {
+                                pipeline_id: self.pipeline_id,
+                                script_sender: self.script_sender.clone(),
+                                is_recording: false,
+                                ticks: vec![],
+                            };
+                            actor.start_recording(name.into());
+                            actor
+                        });
+                        self.framerate_actor.replace(Some(framerate_actor));
                     }
                 }
 
                 let emitter = Emitter::new(
-                    self.name(),
+                    name.clone(),
                     registry.shareable(),
                     registry.start_stamp(),
                     request.try_clone_stream().unwrap(),
@@ -244,7 +246,7 @@ impl Actor for TimelineActor {
                 self.pull_timeline_data(rx, emitter);
 
                 let msg = StartReply {
-                    from: self.name(),
+                    from: name,
                     value: HighResolutionStamp::new(
                         registry.start_stamp(),
                         CrossProcessInstant::now(),
@@ -255,7 +257,7 @@ impl Actor for TimelineActor {
 
             "stop" => {
                 let msg = StopReply {
-                    from: self.name(),
+                    from: name,
                     value: HighResolutionStamp::new(
                         registry.start_stamp(),
                         CrossProcessInstant::now(),
@@ -285,7 +287,7 @@ impl Actor for TimelineActor {
 
             "isRecording" => {
                 let msg = IsRecordingReply {
-                    from: self.name(),
+                    from: name,
                     value: *self.is_recording.lock().unwrap(),
                 };
 
@@ -344,7 +346,7 @@ impl Emitter {
             let framerate_actor = registry.find_mut::<FramerateActor>(actor_name);
             let framerate_reply = FramerateEmitterReply {
                 type_: "framerate".to_owned(),
-                from: framerate_actor.name(),
+                from: actor_name.clone(),
                 delta: HighResolutionStamp::new(self.start_stamp, end_time),
                 timestamps: framerate_actor.take_pending_ticks(),
             };
@@ -356,7 +358,7 @@ impl Emitter {
             let memory_actor = registry.find::<MemoryActor>(actor_name);
             let memory_reply = MemoryEmitterReply {
                 type_: "memory".to_owned(),
-                from: memory_actor.name(),
+                from: actor_name.clone(),
                 delta: HighResolutionStamp::new(self.start_stamp, end_time),
                 measurement: memory_actor.measure(),
             };

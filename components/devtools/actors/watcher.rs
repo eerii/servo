@@ -179,8 +179,7 @@ pub struct WatcherActorMsg {
 }
 
 pub struct WatcherActor {
-    name: String,
-    browsing_context_actor: String,
+    pub browsing_context: Option<String>,
     network_parent: String,
     target_configuration: String,
     thread_configuration: String,
@@ -204,10 +203,6 @@ pub struct WillNavigateMessage {
 impl Actor for WatcherActor {
     const BASE_NAME: &str = "watcher";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The watcher actor can handle the following messages:
     ///
     /// - `watchTargets`: Returns a list of objects to debug. Since we only support web views, it
@@ -226,13 +221,15 @@ impl Actor for WatcherActor {
     /// - `getThreadConfigurationActor`: The same but with the configuration actor for the thread
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
         msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
-        let target = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
+        let target =
+            registry.find::<BrowsingContextActor>(&self.browsing_context.as_ref().unwrap());
         let root = registry.find::<RootActor>("root");
         match msg_type {
             "watchTargets" => {
@@ -244,17 +241,19 @@ impl Actor for WatcherActor {
 
                 if target_type == "frame" {
                     let msg = WatchTargetsReply {
-                        from: self.name(),
+                        from: name.clone(),
                         type_: "target-available-form".into(),
-                        target: TargetActorMsg::BrowsingContext(target.encode(registry)),
+                        target: TargetActorMsg::BrowsingContext(
+                            target.encode(name.clone(), registry),
+                        ),
                     };
                     let _ = request.write_json_packet(&msg);
 
-                    target.frame_update(&mut request);
+                    target.frame_update(self.browsing_context.clone().unwrap(), &mut request);
                 } else if target_type == "worker" {
                     for worker_name in &root.workers {
                         let worker_msg = WatchTargetsReply {
-                            from: self.name(),
+                            from: name.clone(),
                             type_: "target-available-form".into(),
                             target: TargetActorMsg::Worker(
                                 registry.encode::<WorkerActor, _>(worker_name),
@@ -270,7 +269,7 @@ impl Actor for WatcherActor {
                 // don't count as a reply. Since every message needs to be responded, we send an
                 // extra empty packet to the devtools host to inform that we successfully received
                 // and processed the message so that it can continue
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "watchResources" => {
@@ -303,6 +302,7 @@ impl Actor for WatcherActor {
                                     url: Some(target.url.borrow().clone()),
                                 };
                                 target.resource_array(
+                                    self.browsing_context.clone().unwrap(),
                                     event,
                                     "document-event".into(),
                                     ResourceArrayType::Available,
@@ -311,9 +311,10 @@ impl Actor for WatcherActor {
                             }
                         },
                         "source" => {
-                            let thread_actor = registry.find::<ThreadActor>(&target.thread);
+                            let thread = registry.find::<ThreadActor>(&target.thread);
                             target.resources_array(
-                                thread_actor.source_manager.source_forms(registry),
+                                self.browsing_context.clone().unwrap(),
+                                thread.source_manager.encode(registry),
                                 "source".into(),
                                 ResourceArrayType::Available,
                                 &mut request,
@@ -324,7 +325,8 @@ impl Actor for WatcherActor {
                                 let thread = registry.find::<ThreadActor>(&worker.thread);
 
                                 worker.resources_array(
-                                    thread.source_manager.source_forms(registry),
+                                    worker_name.clone(),
+                                    thread.source_manager.encode(registry),
                                     "source".into(),
                                     ResourceArrayType::Available,
                                     &mut request,
@@ -336,26 +338,26 @@ impl Actor for WatcherActor {
                         _ => warn!("resource {} not handled yet", resource),
                     }
                 }
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "getParentBrowsingContextID" => {
                 let msg = GetParentBrowsingContextIDReply {
-                    from: self.name(),
+                    from: name,
                     browsing_context_id: target.browsing_context_id.value(),
                 };
                 request.reply_final(&msg)?
             },
             "getNetworkParentActor" => {
                 let msg = GetNetworkParentActorReply {
-                    from: self.name(),
+                    from: name,
                     network: registry.encode::<NetworkParentActor, _>(&self.network_parent),
                 };
                 request.reply_final(&msg)?
             },
             "getTargetConfigurationActor" => {
                 let msg = GetTargetConfigurationActorReply {
-                    from: self.name(),
+                    from: name,
                     configuration: registry
                         .encode::<TargetConfigurationActor, _>(&self.target_configuration),
                 };
@@ -363,7 +365,7 @@ impl Actor for WatcherActor {
             },
             "getThreadConfigurationActor" => {
                 let msg = GetThreadConfigurationActorReply {
-                    from: self.name(),
+                    from: name,
                     configuration: registry
                         .encode::<ThreadConfigurationActor, _>(&self.thread_configuration),
                 };
@@ -371,7 +373,7 @@ impl Actor for WatcherActor {
             },
             "getBreakpointListActor" => {
                 let msg = GetBreakpointListActorReply {
-                    from: self.name(),
+                    from: name,
                     breakpoint_list: registry
                         .encode::<BreakpointListActor, _>(&self.breakpoint_list),
                 };
@@ -383,45 +385,30 @@ impl Actor for WatcherActor {
     }
 }
 
-impl ResourceAvailable for WatcherActor {
-    fn actor_name(&self) -> String {
-        self.name.clone()
-    }
-}
+impl ResourceAvailable for WatcherActor {}
 
 impl WatcherActor {
-    pub fn new(
-        actors: &mut ActorRegistry,
-        browsing_context_actor: String,
-        session_context: SessionContext,
-    ) -> Self {
-        let network_parent = NetworkParentActor::new(actors.new_name::<NetworkParentActor>());
-        let target_configuration =
-            TargetConfigurationActor::new(actors.new_name::<TargetConfigurationActor>());
-        let thread_configuration =
-            ThreadConfigurationActor::new(actors.new_name::<ThreadConfigurationActor>());
-        let breakpoint_list = BreakpointListActor::new(actors.new_name::<BreakpointListActor>());
+    pub fn new(actors: &mut ActorRegistry, session_context: SessionContext) -> Self {
+        let network_parent = actors.register(NetworkParentActor {});
+        let target_configuration = actors.register(TargetConfigurationActor::new());
+        let thread_configuration = actors.register(ThreadConfigurationActor::default());
+        let breakpoint_list = actors.register(BreakpointListActor {});
 
         let watcher = Self {
-            name: actors.new_name::<Self>(),
-            browsing_context_actor,
-            network_parent: network_parent.name(),
-            target_configuration: target_configuration.name(),
-            thread_configuration: thread_configuration.name(),
-            breakpoint_list: breakpoint_list.name(),
+            browsing_context: None,
+            network_parent: network_parent.clone(),
+            target_configuration: target_configuration.clone(),
+            thread_configuration: thread_configuration.clone(),
+            breakpoint_list: breakpoint_list.clone(),
             session_context,
         };
-
-        actors.register(network_parent);
-        actors.register(target_configuration);
-        actors.register(thread_configuration);
-        actors.register(breakpoint_list);
 
         watcher
     }
 
     pub fn emit_will_navigate(
         &self,
+        name: String,
         browsing_context_id: BrowsingContextId,
         url: ServoUrl,
         connections: &mut Vec<TcpStream>,
@@ -441,6 +428,7 @@ impl WatcherActor {
 
         for stream in connections {
             self.resource_array(
+                name.clone(),
                 msg.clone(),
                 "document-event".to_string(),
                 ResourceArrayType::Available,
@@ -451,9 +439,9 @@ impl WatcherActor {
 }
 
 impl ActorEncode<WatcherActorMsg> for WatcherActor {
-    fn encode(&self, _: &ActorRegistry) -> WatcherActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> WatcherActorMsg {
         WatcherActorMsg {
-            actor: self.name(),
+            actor: name,
             traits: WatcherTraits {
                 resources: self.session_context.supported_resources.clone(),
                 targets: self.session_context.supported_targets.clone(),

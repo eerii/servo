@@ -6,17 +6,16 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use base::generic_channel::{GenericSender, channel};
-use base::id::PipelineId;
 use devtools_traits::DevtoolScriptControlMsg;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use servo_url::ServoUrl;
 
 use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 
-/// A `sourceForm` as used in responses to thread `sources` requests.
+/// Response to thread `sources` requests.
 ///
 /// For now, we also use this for sources in watcher `resource-available-array` messages,
 /// but in Firefox those have extra fields.
@@ -24,7 +23,7 @@ use crate::protocol::ClientRequest;
 /// <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#loading-script-sources>
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SourceForm {
+pub(crate) struct SourceActorMsg {
     pub actor: String,
     /// URL of the script, or URL of the page for inline scripts.
     pub url: String,
@@ -36,18 +35,16 @@ pub(crate) struct SourceForm {
 #[derive(Serialize)]
 pub(crate) struct SourcesReply {
     pub from: String,
-    pub sources: Vec<SourceForm>,
+    pub sources: Vec<SourceActorMsg>,
 }
 
+#[derive(Default)]
 pub(crate) struct SourceManager {
     source_actor_names: RefCell<BTreeSet<String>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct SourceActor {
-    /// Actor name.
-    pub name: String,
-
     /// URL of the script, or URL of the page for inline scripts.
     pub url: ServoUrl,
 
@@ -58,12 +55,11 @@ pub struct SourceActor {
     pub content: Option<String>,
     pub content_type: Option<String>,
 
-    // TODO: use it in #37667, then remove this allow
     pub spidermonkey_id: u32,
     /// `introductionType` in SpiderMonkey `CompileOptionsWrapper`.
     pub introduction_type: String,
 
-    script_sender: GenericSender<DevtoolScriptControlMsg>,
+    pub script_sender: GenericSender<DevtoolScriptControlMsg>,
 }
 
 #[derive(Serialize)]
@@ -93,96 +89,27 @@ struct GetBreakpointPositionsCompressedReply {
 }
 
 impl SourceManager {
-    pub fn new() -> Self {
-        Self {
-            source_actor_names: RefCell::new(BTreeSet::default()),
-        }
-    }
-
     pub fn add_source(&self, actor_name: &str) {
         self.source_actor_names
             .borrow_mut()
             .insert(actor_name.to_owned());
     }
 
-    pub fn source_forms(&self, actors: &ActorRegistry) -> Vec<SourceForm> {
+    pub fn encode(&self, actors: &ActorRegistry) -> Vec<SourceActorMsg> {
         self.source_actor_names
             .borrow()
             .iter()
-            .map(|actor_name| actors.find::<SourceActor>(actor_name).source_form())
+            .map(|actor_name| actors.encode::<SourceActor, _>(actor_name))
             .collect()
-    }
-}
-
-impl SourceActor {
-    pub fn new(
-        name: String,
-        url: ServoUrl,
-        content: Option<String>,
-        content_type: Option<String>,
-        spidermonkey_id: u32,
-        introduction_type: String,
-        script_sender: GenericSender<DevtoolScriptControlMsg>,
-    ) -> SourceActor {
-        SourceActor {
-            name,
-            url,
-            content,
-            content_type,
-            is_black_boxed: false,
-            spidermonkey_id,
-            introduction_type,
-            script_sender,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_registered(
-        actors: &mut ActorRegistry,
-        pipeline_id: PipelineId,
-        url: ServoUrl,
-        content: Option<String>,
-        content_type: Option<String>,
-        spidermonkey_id: u32,
-        introduction_type: String,
-        script_sender: GenericSender<DevtoolScriptControlMsg>,
-    ) -> &SourceActor {
-        let source_actor_name = actors.new_name::<Self>();
-
-        let source_actor = SourceActor::new(
-            source_actor_name.clone(),
-            url,
-            content,
-            content_type,
-            spidermonkey_id,
-            introduction_type,
-            script_sender,
-        );
-        actors.register(source_actor);
-        actors.register_source_actor(pipeline_id, &source_actor_name);
-
-        actors.find(&source_actor_name)
-    }
-
-    pub fn source_form(&self) -> SourceForm {
-        SourceForm {
-            actor: self.name.clone(),
-            url: self.url.to_string(),
-            is_black_boxed: self.is_black_boxed,
-            introduction_type: self.introduction_type.clone(),
-        }
     }
 }
 
 impl Actor for SourceActor {
     const BASE_NAME: &str = "source";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -193,7 +120,7 @@ impl Actor for SourceActor {
             // Client has requested contents of the source.
             "source" => {
                 let reply = SourceContentReply {
-                    from: self.name(),
+                    from: name,
                     content_type: self.content_type.clone(),
                     // TODO: if needed, fetch the page again, in the same way as in the original request.
                     // Fetch it from cache, even if the original request was non-idempotent (e.g. POST).
@@ -227,7 +154,7 @@ impl Actor for SourceActor {
                     .map(|entry| entry.line_number)
                     .collect::<BTreeSet<_>>();
                 let reply = GetBreakableLinesReply {
-                    from: self.name(),
+                    from: name,
                     lines,
                 };
                 request.reply_final(&reply)?
@@ -256,7 +183,7 @@ impl Actor for SourceActor {
                         .insert(entry.column_number - 1);
                 }
                 let reply = GetBreakpointPositionsCompressedReply {
-                    from: self.name(),
+                    from: name,
                     positions,
                 };
                 request.reply_final(&reply)?
@@ -264,5 +191,16 @@ impl Actor for SourceActor {
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
+    }
+}
+
+impl ActorEncode<SourceActorMsg> for SourceActor {
+    fn encode(&self, name: String, _: &ActorRegistry) -> SourceActorMsg {
+        SourceActorMsg {
+            actor: name,
+            url: self.url.to_string(),
+            is_black_boxed: self.is_black_boxed,
+            introduction_type: self.introduction_type.clone(),
+        }
     }
 }

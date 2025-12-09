@@ -8,22 +8,17 @@ use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 use crate::{ActorMsg, EmptyReplyMsg, StreamId};
 
-pub struct NetworkParentActor {
-    name: String,
-}
+pub struct NetworkParentActor {}
 
 impl Actor for NetworkParentActor {
     const BASE_NAME: &str = "network-parent";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The network parent actor can handle the following messages:
     ///
     /// - `setSaveRequestAndResponseBodies`: Doesn't do anything yet
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -32,7 +27,7 @@ impl Actor for NetworkParentActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "setSaveRequestAndResponseBodies" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -41,14 +36,8 @@ impl Actor for NetworkParentActor {
     }
 }
 
-impl NetworkParentActor {
-    pub fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
 impl ActorEncode<ActorMsg> for NetworkParentActor {
-    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
-        ActorMsg { actor: self.name() }
+    fn encode(&self, name: String, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: name }
     }
 }

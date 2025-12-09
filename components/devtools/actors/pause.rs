@@ -8,14 +8,8 @@ use crate::actor::Actor;
 #[allow(dead_code)]
 /// Referenced by `ThreadActor` when replying to `interupt` messages.
 /// <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#1699>
-pub struct PauseActor {
-    pub name: String,
-}
+pub struct PauseActor {}
 
 impl Actor for PauseActor {
     const BASE_NAME: &str = "pause";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 }

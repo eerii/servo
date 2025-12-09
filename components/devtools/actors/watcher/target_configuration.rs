@@ -32,7 +32,6 @@ pub struct TargetConfigurationActorMsg {
 }
 
 pub struct TargetConfigurationActor {
-    name: String,
     configuration: HashMap<&'static str, bool>,
     supported_options: HashMap<&'static str, bool>,
 }
@@ -40,15 +39,12 @@ pub struct TargetConfigurationActor {
 impl Actor for TargetConfigurationActor {
     const BASE_NAME: &str = "target-configuration";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The target configuration actor can handle the following messages:
     ///
     /// - `updateConfiguration`: Receives new configuration flags from the devtools host.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -71,9 +67,9 @@ impl Actor for TargetConfigurationActor {
                     let root_actor = registry.find::<RootActor>("root");
                     if let Some(tab_name) = root_actor.active_tab() {
                         let tab_actor = registry.find::<TabDescriptorActor>(&tab_name);
-                        let browsing_context_name = tab_actor.browsing_context();
+                        let browsing_context_name = tab_actor.browsing_context.clone();
                         let browsing_context_actor =
-                            registry.find::<BrowsingContextActor>(&browsing_context_name);
+                            registry.find::<BrowsingContextActor>(&browsing_context_name.unwrap());
                         browsing_context_actor
                             .simulate_color_scheme(theme)
                             .map_err(|_| ActorError::Internal)?;
@@ -81,7 +77,7 @@ impl Actor for TargetConfigurationActor {
                         warn!("No active tab for updateConfiguration");
                     }
                 }
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -91,9 +87,8 @@ impl Actor for TargetConfigurationActor {
 }
 
 impl TargetConfigurationActor {
-    pub fn new(name: String) -> Self {
+    pub fn new() -> Self {
         Self {
-            name,
             configuration: HashMap::new(),
             supported_options: HashMap::from([
                 ("cacheDisabled", false),
@@ -119,9 +114,9 @@ impl TargetConfigurationActor {
 }
 
 impl ActorEncode<TargetConfigurationActorMsg> for TargetConfigurationActor {
-    fn encode(&self, _: &ActorRegistry) -> TargetConfigurationActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> TargetConfigurationActorMsg {
         TargetConfigurationActorMsg {
-            actor: self.name(),
+            actor: name,
             configuration: self.configuration.clone(),
             traits: TargetConfigurationTraits {
                 supported_options: self.supported_options.clone(),

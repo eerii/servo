@@ -34,19 +34,14 @@ struct SystemInfo {
 
 include!(concat!(env!("OUT_DIR"), "/build_id.rs"));
 
-pub struct DeviceActor {
-    pub name: String,
-}
+pub struct DeviceActor {}
 
 impl Actor for DeviceActor {
     const BASE_NAME: &str = "device";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -56,7 +51,7 @@ impl Actor for DeviceActor {
         match msg_type {
             "getDescription" => {
                 let msg = GetDescriptionReply {
-                    from: self.name(),
+                    from: name,
                     value: SystemInfo {
                         apptype: "servo".to_string(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -75,10 +70,6 @@ impl Actor for DeviceActor {
 }
 
 impl DeviceActor {
-    pub fn new(name: String) -> DeviceActor {
-        DeviceActor { name }
-    }
-
     pub fn description() -> ActorDescription {
         ActorDescription {
             category: "actor",

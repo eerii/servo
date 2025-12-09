@@ -100,7 +100,6 @@ pub struct NodeActorMsg {
 }
 
 pub struct NodeActor {
-    name: String,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
     pub pipeline: PipelineId,
     pub walker: String,
@@ -110,10 +109,6 @@ pub struct NodeActor {
 impl Actor for NodeActor {
     const BASE_NAME: &str = "node";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The node actor can handle the following messages:
     ///
     /// - `modifyAttributes`: Asks the script to change a value in the attribute of the
@@ -122,6 +117,7 @@ impl Actor for NodeActor {
     /// - `getUniqueSelector`: Returns the display name of this node
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -143,17 +139,17 @@ impl Actor for NodeActor {
                     .collect();
 
                 let walker = registry.find::<WalkerActor>(&self.walker);
-                walker.new_mutations(&mut request, &self.name, &modifications);
+                walker.new_mutations(self.walker.clone(), &mut request, &name, &modifications);
 
                 self.script_chan
                     .send(DevtoolScriptControlMsg::ModifyAttribute(
                         self.pipeline,
-                        registry.actor_to_script(self.name()),
+                        registry.actor_to_script(name.clone()),
                         modifications,
                     ))
                     .map_err(|_| ActorError::Internal)?;
 
-                let reply = EmptyReplyMsg { from: self.name() };
+                let reply = EmptyReplyMsg { from: name };
                 request.reply_final(&reply)?
             },
 
@@ -177,7 +173,7 @@ impl Actor for NodeActor {
                 );
 
                 let msg = GetUniqueSelectorReply {
-                    from: self.name(),
+                    from: name,
                     value: node.display_name,
                 };
                 request.reply_final(&msg)?
@@ -200,7 +196,7 @@ impl Actor for NodeActor {
 
                 let xpath_selector = rx.recv().map_err(|_| ActorError::Internal)?;
                 let msg = GetXPathReply {
-                    from: self.name(),
+                    from: name,
                     value: xpath_selector,
                 };
                 request.reply_final(&msg)?
@@ -231,19 +227,15 @@ impl NodeInfoToProtocol for NodeInfo {
         walker: String,
     ) -> NodeActorMsg {
         let get_or_register_node_actor = |id: &str| {
-            if !actors.script_actor_registered(id.to_string()) {
-                let name = actors.new_name::<NodeActor>();
-                actors.register_script_actor(id.to_string(), name.clone());
-
-                let node_actor = NodeActor {
-                    name: name.clone(),
+            if !actors.script_actor_registered(id) {
+                let node = actors.register_later(NodeActor {
                     script_chan: script_chan.clone(),
                     pipeline,
                     walker: walker.clone(),
                     style_rules: RefCell::new(HashMap::new()),
-                };
-                actors.register_later(node_actor);
-                name
+                });
+                actors.register_script_actor(id.to_string(), node.clone());
+                node
             } else {
                 actors.script_to_actor(id.to_string())
             }

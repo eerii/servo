@@ -12,9 +12,8 @@
 use std::cell::RefCell;
 
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
-use crate::StreamId;
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::actors::device::DeviceActor;
 use crate::actors::performance::PerformanceActor;
@@ -22,6 +21,7 @@ use crate::actors::process::{ProcessActor, ProcessActorMsg};
 use crate::actors::tab::{TabDescriptorActor, TabDescriptorActorMsg};
 use crate::actors::worker::{WorkerActor, WorkerActorMsg};
 use crate::protocol::{ActorDescription, ClientRequest};
+use crate::{EmptyReplyMsg, StreamId};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,12 +128,9 @@ pub struct RootActor {
 impl Actor for RootActor {
     const BASE_NAME: &str = "root";
 
-    fn name(&self) -> String {
-        Self::BASE_NAME.into()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -142,14 +139,12 @@ impl Actor for RootActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "connect" => {
-                let message = json!({
-                    "from": "root",
-                });
+                let message = EmptyReplyMsg { from: name };
                 request.reply_final(&message)?
             },
             "listAddons" => {
                 let actor = ListAddonsReply {
-                    from: "root".to_owned(),
+                    from: name,
                     addons: vec![],
                 };
                 request.reply_final(&actor)?
@@ -158,7 +153,7 @@ impl Actor for RootActor {
             "listProcesses" => {
                 let process = registry.encode::<ProcessActor, _>(&self.process);
                 let reply = ListProcessesResponse {
-                    from: self.name(),
+                    from: name,
                     processes: vec![process],
                 };
                 request.reply_final(&reply)?
@@ -168,7 +163,7 @@ impl Actor for RootActor {
             "getProcess" => {
                 let process = registry.encode::<ProcessActor, _>(&self.process);
                 let reply = GetProcessResponse {
-                    from: self.name(),
+                    from: name,
                     process_descriptor: process,
                 };
                 request.reply_final(&reply)?
@@ -176,7 +171,7 @@ impl Actor for RootActor {
 
             "getRoot" => {
                 let actor = GetRootReply {
-                    from: "root".to_owned(),
+                    from: RootActor::BASE_NAME.into(),
                     selected: 0,
                     performance_actor: self.performance.clone(),
                     device_actor: self.device.clone(),
@@ -186,28 +181,26 @@ impl Actor for RootActor {
             },
 
             "listTabs" => {
-                let actor = ListTabsReply {
-                    from: "root".to_owned(),
-                    tabs: self
-                        .tabs
-                        .iter()
-                        .filter_map(|target| {
-                            let tab_actor = registry.find::<TabDescriptorActor>(target);
-                            // Filter out iframes and workers
-                            if tab_actor.is_top_level_global() {
-                                Some(tab_actor.encode(registry))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
-                };
+                let tabs = self
+                    .tabs
+                    .iter()
+                    .filter_map(|target| {
+                        let tab_actor = registry.find::<TabDescriptorActor>(target);
+                        // Filter out iframes and workers
+                        if tab_actor.is_top_level_global {
+                            Some(tab_actor.encode(target.clone(), registry))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let actor = ListTabsReply { from: name, tabs };
                 request.reply_final(&actor)?
             },
 
             "listServiceWorkerRegistrations" => {
                 let reply = ListServiceWorkerRegistrationsReply {
-                    from: self.name(),
+                    from: name,
                     registrations: vec![],
                 };
                 request.reply_final(&reply)?
@@ -215,7 +208,7 @@ impl Actor for RootActor {
 
             "listWorkers" => {
                 let reply = ListWorkersReply {
-                    from: self.name(),
+                    from: name,
                     workers: self
                         .workers
                         .iter()
@@ -235,16 +228,13 @@ impl Actor for RootActor {
                     return Err(ActorError::Internal);
                 };
 
-                let reply = GetTabReply {
-                    from: self.name(),
-                    tab,
-                };
+                let reply = GetTabReply { from: name, tab };
                 request.reply_final(&reply)?
             },
 
             "protocolDescription" => {
                 let msg = ProtocolDescriptionReply {
-                    from: self.name(),
+                    from: name,
                     types: Types {
                         performance: PerformanceActor::description(),
                         device: DeviceActor::description(),
@@ -284,9 +274,9 @@ impl RootActor {
 }
 
 impl ActorEncode<RootActorMsg> for RootActor {
-    fn encode(&self, _: &ActorRegistry) -> RootActorMsg {
+    fn encode(&self, name: String, _: &ActorRegistry) -> RootActorMsg {
         RootActorMsg {
-            from: "root".to_owned(),
+            from: name,
             application_type: "browser".to_owned(),
             traits: ActorTraits {
                 sources: false,

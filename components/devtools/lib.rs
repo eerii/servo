@@ -161,26 +161,21 @@ impl DevtoolsInstance {
 
         // Create basic actors
         let mut registry = ActorRegistry::new();
-        let performance = PerformanceActor::new(registry.new_name::<PerformanceActor>());
-        let device = DeviceActor::new(registry.new_name::<DeviceActor>());
-        let preference = PreferenceActor::new(registry.new_name::<PreferenceActor>());
-        let process = ProcessActor::new(registry.new_name::<ProcessActor>());
+        let device = registry.register(DeviceActor {});
+        let performance = registry.register(PerformanceActor {});
+        let preference = registry.register(PreferenceActor {});
+        let process = registry.register(ProcessActor {});
         let root = RootActor {
             tabs: vec![],
             workers: vec![],
-            device: device.name(),
-            performance: performance.name(),
-            preference: preference.name(),
-            process: process.name(),
+            device,
+            performance,
+            preference,
+            process,
             active_tab: None.into(),
         };
 
         registry.register(root);
-        registry.register(performance);
-        registry.register(device);
-        registry.register(preference);
-        registry.register(process);
-        registry.find::<RootActor>("root");
 
         let actors = registry.create_shareable();
 
@@ -315,7 +310,7 @@ impl DevtoolsInstance {
     fn handle_framerate_tick(&self, actor_name: String, tick: f64) {
         let mut actors = self.actors.lock().unwrap();
         let framerate_actor = actors.find_mut::<FramerateActor>(&actor_name);
-        framerate_actor.add_tick(tick);
+        framerate_actor.add_tick(actor_name, tick);
     }
 
     fn handle_navigate(&self, browsing_context_id: BrowsingContextId, state: NavigationState) {
@@ -330,13 +325,14 @@ impl DevtoolsInstance {
             }
             let watcher_actor = actors.find::<WatcherActor>(&actor.watcher);
             watcher_actor.emit_will_navigate(
+                actor.watcher.clone(),
                 browsing_context_id,
                 url.clone(),
                 &mut connections,
                 &mut id_map,
             );
         };
-        actor.navigate(state, &mut id_map);
+        actor.navigate(actor_name.clone(), state, &mut id_map);
     }
 
     // We need separate actor representations for each script global that exists;
@@ -356,54 +352,43 @@ impl DevtoolsInstance {
         let devtools_browsing_context_id = id_map.browsing_context_id(browsing_context_id);
         let devtools_outer_window_id = id_map.outer_window_id(pipeline_id);
 
-        let console_name = actors.new_name::<ConsoleActor>();
+        let console = actors.register(ConsoleActor::default());
 
         let parent_actor = if let Some(id) = worker_id {
             assert!(self.pipelines.contains_key(&pipeline_id));
             assert!(self.browsing_contexts.contains_key(&browsing_context_id));
 
-            let thread = ThreadActor::new(actors.new_name::<ThreadActor>());
-            let thread_name = thread.name();
-            actors.register(thread);
+            let thread = actors.register(ThreadActor::default());
 
-            let worker_name = actors.new_name::<WorkerActor>();
-            let worker = WorkerActor {
-                name: worker_name.clone(),
-                console: console_name.clone(),
-                thread: thread_name,
+            let worker = actors.register(WorkerActor {
+                console: console.clone(),
+                thread,
                 worker_id: id,
                 url: page_info.url.clone(),
                 type_: WorkerType::Dedicated,
                 script_chan: script_sender,
                 streams: Default::default(),
-            };
-            let root = actors.find_mut::<RootActor>("root");
-            root.workers.push(worker.name.clone());
+            });
+            self.actor_workers.insert(id, worker.clone());
 
-            self.actor_workers.insert(id, worker_name.clone());
-            actors.register(worker);
+            let root = actors.find_mut::<RootActor>(RootActor::BASE_NAME);
+            root.workers.push(worker.clone());
 
-            Root::DedicatedWorker(worker_name)
+            Root::DedicatedWorker(worker)
         } else {
             self.pipelines.insert(pipeline_id, browsing_context_id);
-            let name = self
-                .browsing_contexts
-                .entry(browsing_context_id)
-                .or_insert_with(|| {
-                    let browsing_context_actor = BrowsingContextActor::new(
-                        console_name.clone(),
-                        devtools_browser_id,
-                        devtools_browsing_context_id,
-                        page_info,
-                        pipeline_id,
-                        devtools_outer_window_id,
-                        script_sender,
-                        &mut actors,
-                    );
-                    let name = browsing_context_actor.name();
-                    actors.register(browsing_context_actor);
-                    name
-                });
+            let name = self.browsing_contexts.entry(browsing_context_id).or_insert(
+                BrowsingContextActor::register(
+                    console.clone(),
+                    devtools_browser_id,
+                    devtools_browsing_context_id,
+                    page_info,
+                    pipeline_id,
+                    devtools_outer_window_id,
+                    script_sender,
+                    &mut actors,
+                ),
+            );
 
             // Add existing streams to the new browsing context
             let browsing_context = actors.find::<BrowsingContextActor>(name);
@@ -415,13 +400,7 @@ impl DevtoolsInstance {
             Root::BrowsingContext(name.clone())
         };
 
-        let console = ConsoleActor {
-            name: console_name,
-            cached_events: Default::default(),
-            root: parent_actor,
-        };
-
-        actors.register(console);
+        actors.find_mut::<ConsoleActor>(&console).root = Some(parent_actor);
     }
 
     fn handle_title_changed(&self, pipeline_id: PipelineId, title: String) {
@@ -538,13 +517,11 @@ impl DevtoolsInstance {
         let resource_id = self.next_resource_id;
         self.next_resource_id += 1;
 
-        let actor_name = actors.new_name::<NetworkEventActor>();
-        let actor = NetworkEventActor::new(actor_name.clone(), resource_id, watcher_name);
+        let network_event = actors.register(NetworkEventActor::new(resource_id, watcher_name));
+        self.actor_requests
+            .insert(request_id, network_event.clone());
 
-        self.actor_requests.insert(request_id, actor_name.clone());
-        actors.register(actor);
-
-        actor_name
+        network_event
     }
 
     fn handle_create_source_actor(
@@ -558,18 +535,17 @@ impl DevtoolsInstance {
         let source_content = source_info
             .content
             .or_else(|| actors.inline_source_content(pipeline_id));
-        let source_actor = SourceActor::new_registered(
-            &mut actors,
-            pipeline_id,
-            source_info.url,
-            source_content,
-            source_info.content_type,
-            source_info.spidermonkey_id,
-            source_info.introduction_type,
+        let source = actors.register(SourceActor {
+            url: source_info.url,
+            content: source_content,
+            content_type: source_info.content_type,
+            is_black_boxed: false,
+            spidermonkey_id: source_info.spidermonkey_id,
+            introduction_type: source_info.introduction_type,
             script_sender,
-        );
-        let source_actor_name = source_actor.name.clone();
-        let source_form = source_actor.source_form();
+        });
+        actors.register_source_actor(pipeline_id, &source);
+        let source_msg = actors.encode::<SourceActor, _>(&source);
 
         if let Some(worker_id) = source_info.worker_id {
             let Some(worker_actor_name) = self.actor_workers.get(&worker_id) else {
@@ -579,13 +555,14 @@ impl DevtoolsInstance {
             let thread_actor_name = actors.find::<WorkerActor>(worker_actor_name).thread.clone();
             let thread_actor = actors.find_mut::<ThreadActor>(&thread_actor_name);
 
-            thread_actor.source_manager.add_source(&source_actor_name);
+            thread_actor.source_manager.add_source(&source);
 
             let worker_actor = actors.find::<WorkerActor>(worker_actor_name);
 
             for stream in self.connections.values_mut() {
                 worker_actor.resource_array(
-                    &source_form,
+                    worker_actor_name.clone(),
+                    &source_msg,
                     "source".into(),
                     ResourceArrayType::Available,
                     stream,
@@ -606,14 +583,15 @@ impl DevtoolsInstance {
 
             let thread_actor = actors.find_mut::<ThreadActor>(&thread_actor_name);
 
-            thread_actor.source_manager.add_source(&source_actor_name);
+            thread_actor.source_manager.add_source(&source);
 
             // Notify browsing context about the new source
             let browsing_context = actors.find::<BrowsingContextActor>(actor_name);
 
             for stream in self.connections.values_mut() {
                 browsing_context.resource_array(
-                    &source_form,
+                    actor_name.clone(),
+                    &source_msg,
                     "source".into(),
                     ResourceArrayType::Available,
                     stream,

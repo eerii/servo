@@ -20,27 +20,27 @@ pub(crate) struct ResourceAvailableReply<T: Serialize> {
 }
 
 pub(crate) trait ResourceAvailable {
-    fn actor_name(&self) -> String;
-
     fn resource_array<T: Serialize, S: JsonPacketStream>(
         &self,
+        name: String,
         resource: T,
         resource_type: String,
         array_type: ResourceArrayType,
         stream: &mut S,
     ) {
-        self.resources_array(vec![resource], resource_type, array_type, stream);
+        self.resources_array(name, vec![resource], resource_type, array_type, stream);
     }
 
     fn resources_array<T: Serialize, S: JsonPacketStream>(
         &self,
+        name: String,
         resources: Vec<T>,
         resource_type: String,
         array_type: ResourceArrayType,
         stream: &mut S,
     ) {
         let msg = ResourceAvailableReply::<T> {
-            from: self.actor_name(),
+            from: name,
             type_: match array_type {
                 ResourceArrayType::Available => "resources-available-array".to_string(),
                 ResourceArrayType::Updated => "resources-updated-array".to_string(),

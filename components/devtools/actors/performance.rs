@@ -9,9 +9,7 @@ use crate::StreamId;
 use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::protocol::{ActorDescription, ClientRequest, Method};
 
-pub struct PerformanceActor {
-    name: String,
-}
+pub struct PerformanceActor {}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,12 +51,9 @@ enum Error {}
 impl Actor for PerformanceActor {
     const BASE_NAME: &str = "perf";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
@@ -68,7 +63,7 @@ impl Actor for PerformanceActor {
         match msg_type {
             "connect" => {
                 let msg = ConnectReply {
-                    from: self.name(),
+                    from: name,
                     traits: PerformanceTraits {
                         features: PerformanceFeatures {
                             with_markers: true,
@@ -83,7 +78,7 @@ impl Actor for PerformanceActor {
             },
             "canCurrentlyRecord" => {
                 let msg = CanCurrentlyRecordReply {
-                    from: self.name(),
+                    from: name,
                     value: SuccessMsg {
                         success: true,
                         errors: vec![],
@@ -98,10 +93,6 @@ impl Actor for PerformanceActor {
 }
 
 impl PerformanceActor {
-    pub fn new(name: String) -> PerformanceActor {
-        PerformanceActor { name }
-    }
-
     pub fn description() -> ActorDescription {
         ActorDescription {
             category: "actor",

@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::actors::browsing_context::{BrowsingContextActor, BrowsingContextActorMsg};
-use crate::actors::root::{DescriptorTraits, RootActor};
+use crate::actors::root::DescriptorTraits;
 use crate::actors::watcher::{WatcherActor, WatcherActorMsg};
 use crate::protocol::ClientRequest;
 use crate::{EmptyReplyMsg, StreamId};
@@ -68,17 +68,12 @@ struct GetWatcherReply {
 }
 
 pub struct TabDescriptorActor {
-    name: String,
-    browsing_context_actor: String,
-    is_top_level_global: bool,
+    pub browsing_context: Option<String>,
+    pub is_top_level_global: bool,
 }
 
 impl Actor for TabDescriptorActor {
     const BASE_NAME: &str = "tab-descriptor";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 
     /// The tab actor can handle the following messages:
     ///
@@ -92,6 +87,7 @@ impl Actor for TabDescriptorActor {
     /// - `reloadDescriptor`: Causes the page to reload.
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -100,33 +96,36 @@ impl Actor for TabDescriptorActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getTarget" => request.reply_final(&GetTargetReply {
-                from: self.name(),
-                frame: registry.encode::<BrowsingContextActor, _>(&self.browsing_context_actor),
+                from: name,
+                frame: registry
+                    .encode::<BrowsingContextActor, _>(self.browsing_context.as_ref().unwrap()),
             })?,
             "getFavicon" => {
                 // TODO: Return a favicon when available
                 request.reply_final(&GetFaviconReply {
-                    from: self.name(),
+                    from: name,
                     favicon: String::new(),
                 })?
             },
             "getWatcher" => {
-                let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
+                let ctx_actor =
+                    registry.find::<BrowsingContextActor>(self.browsing_context.as_ref().unwrap());
                 request.reply_final(&GetWatcherReply {
-                    from: self.name(),
+                    from: name,
                     watcher: registry.encode::<WatcherActor, _>(&ctx_actor.watcher),
                 })?
             },
             "reloadDescriptor" => {
                 // There is an extra bypassCache parameter that we don't currently use.
-                let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
+                let ctx_actor =
+                    registry.find::<BrowsingContextActor>(self.browsing_context.as_ref().unwrap());
                 let pipeline = ctx_actor.active_pipeline_id.get();
                 ctx_actor
                     .script_chan
                     .send(DevtoolScriptControlMsg::Reload(pipeline))
                     .map_err(|_| ActorError::Internal)?;
 
-                request.reply_final(&EmptyReplyMsg { from: self.name() })?
+                request.reply_final(&EmptyReplyMsg { from: name })?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
@@ -134,39 +133,15 @@ impl Actor for TabDescriptorActor {
     }
 }
 
-impl TabDescriptorActor {
-    pub(crate) fn new(
-        actors: &mut ActorRegistry,
-        browsing_context_actor: String,
-        is_top_level_global: bool,
-    ) -> TabDescriptorActor {
-        let name = actors.new_name::<TabDescriptorActor>();
-        let root = actors.find_mut::<RootActor>("root");
-        root.tabs.push(name.clone());
-        TabDescriptorActor {
-            name,
-            browsing_context_actor,
-            is_top_level_global,
-        }
-    }
-
-    pub(crate) fn is_top_level_global(&self) -> bool {
-        self.is_top_level_global
-    }
-
-    pub fn browsing_context(&self) -> String {
-        self.browsing_context_actor.clone()
-    }
-}
-
 impl ActorEncode<TabDescriptorActorMsg> for TabDescriptorActor {
-    fn encode(&self, registry: &ActorRegistry) -> TabDescriptorActorMsg {
-        let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
+    fn encode(&self, name: String, registry: &ActorRegistry) -> TabDescriptorActorMsg {
+        let ctx_actor =
+            registry.find::<BrowsingContextActor>(self.browsing_context.as_ref().unwrap());
         let title = ctx_actor.title.borrow().clone();
         let url = ctx_actor.url.borrow().clone();
 
         TabDescriptorActorMsg {
-            actor: self.name(),
+            actor: name,
             browser_id: ctx_actor.browser_id.value(),
             browsing_context_id: ctx_actor.browsing_context_id.value(),
             is_zombie_tab: false,

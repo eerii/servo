@@ -8,51 +8,26 @@ use base::generic_channel::GenericSender;
 use base::id::PipelineId;
 use devtools_traits::DevtoolScriptControlMsg;
 
-use crate::actor::{Actor, ActorRegistry};
+use crate::actor::Actor;
 use crate::actors::timeline::HighResolutionStamp;
 
 pub struct FramerateActor {
-    name: String,
-    pipeline_id: PipelineId,
-    script_sender: GenericSender<DevtoolScriptControlMsg>,
-    is_recording: bool,
-    ticks: Vec<HighResolutionStamp>,
+    pub pipeline_id: PipelineId,
+    pub script_sender: GenericSender<DevtoolScriptControlMsg>,
+    pub is_recording: bool,
+    pub ticks: Vec<HighResolutionStamp>,
 }
 
 impl Actor for FramerateActor {
     const BASE_NAME: &str = "framerate";
-
-    fn name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 impl FramerateActor {
-    /// Return name of actor
-    pub fn create(
-        registry: &ActorRegistry,
-        pipeline_id: PipelineId,
-        script_sender: GenericSender<DevtoolScriptControlMsg>,
-    ) -> String {
-        let actor_name = registry.new_name::<Self>();
-        let mut actor = FramerateActor {
-            name: actor_name.clone(),
-            pipeline_id,
-            script_sender,
-            is_recording: false,
-            ticks: Vec::new(),
-        };
-
-        actor.start_recording();
-        registry.register_later(actor);
-        actor_name
-    }
-
-    pub fn add_tick(&mut self, tick: f64) {
+    pub fn add_tick(&mut self, name: String, tick: f64) {
         self.ticks.push(HighResolutionStamp::wrap(tick));
 
         if self.is_recording {
-            let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, self.name());
+            let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, name);
             self.script_sender.send(msg).unwrap();
         }
     }
@@ -61,14 +36,14 @@ impl FramerateActor {
         mem::take(&mut self.ticks)
     }
 
-    fn start_recording(&mut self) {
+    pub fn start_recording(&mut self, name: String) {
         if self.is_recording {
             return;
         }
 
         self.is_recording = true;
 
-        let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, self.name());
+        let msg = DevtoolScriptControlMsg::RequestAnimationFrame(self.pipeline_id, name);
         self.script_sender.send(msg).unwrap();
     }
 

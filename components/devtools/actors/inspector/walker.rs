@@ -26,7 +26,6 @@ pub struct WalkerMsg {
 }
 
 pub struct WalkerActor {
-    pub name: String,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
     pub pipeline: PipelineId,
     pub root_node: NodeActorMsg,
@@ -59,7 +58,8 @@ struct ChildrenReply {
 #[derive(Serialize)]
 struct GetLayoutInspectorReply {
     from: String,
-    actor: ActorMsg,
+    #[serde(flatten)]
+    actor: Option<ActorMsg>,
 }
 
 #[derive(Serialize)]
@@ -102,10 +102,6 @@ struct NewMutationsNotification {
 impl Actor for WalkerActor {
     const BASE_NAME: &str = "walker";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The walker actor can handle the following messages:
     ///
     /// - `children`: Returns a list of children nodes of the specified node
@@ -124,6 +120,7 @@ impl Actor for WalkerActor {
     ///   node and its ascendents
     fn handle_message(
         &self,
+        name: String,
         mut request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -162,16 +159,16 @@ impl Actor for WalkerActor {
                                 registry,
                                 self.script_chan.clone(),
                                 self.pipeline,
-                                self.name(),
+                                name.clone(),
                             )
                         })
                         .collect(),
-                    from: self.name(),
+                    from: name,
                 };
                 request.reply_final(&msg)?
             },
             "clearPseudoClassLocks" => {
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             "documentElement" => {
@@ -189,30 +186,30 @@ impl Actor for WalkerActor {
                     registry,
                     self.script_chan.clone(),
                     self.pipeline,
-                    self.name(),
+                    name.clone(),
                 );
 
                 let msg = DocumentElementReply {
-                    from: self.name(),
+                    from: name,
                     node,
                 };
                 request.reply_final(&msg)?
             },
             "getLayoutInspector" => {
-                // TODO: Create actual layout inspector actor
-                let layout = LayoutInspectorActor::new(registry.new_name::<LayoutInspectorActor>());
-                let actor = layout.encode(registry);
-                registry.register_later(layout);
-
-                let msg = GetLayoutInspectorReply {
-                    from: self.name(),
-                    actor,
+                let mut msg = GetLayoutInspectorReply {
+                    from: name,
+                    actor: None,
                 };
+                registry.register_with(|name| {
+                    let actor = LayoutInspectorActor {};
+                    msg.actor = Some(actor.encode(name.into(), registry));
+                    actor
+                });
                 request.reply_final(&msg)?
             },
             "getMutations" => {
                 let msg = GetMutationsReply {
-                    from: self.name(),
+                    from: name,
                     mutations: self
                         .mutations
                         .borrow_mut()
@@ -229,7 +226,7 @@ impl Actor for WalkerActor {
             },
             "getOffsetParent" => {
                 let msg = GetOffsetParentReply {
-                    from: self.name(),
+                    from: name,
                     node: None,
                 };
                 request.reply_final(&msg)?
@@ -248,7 +245,7 @@ impl Actor for WalkerActor {
                 let mut hierarchy = find_child(
                     &self.script_chan,
                     self.pipeline,
-                    &self.name,
+                    &name,
                     registry,
                     node,
                     vec![],
@@ -259,7 +256,7 @@ impl Actor for WalkerActor {
                 let node = hierarchy.pop().ok_or(ActorError::Internal)?;
 
                 let msg = QuerySelectorReply {
-                    from: self.name(),
+                    from: name,
                     node,
                     new_parents: hierarchy,
                 };
@@ -268,12 +265,12 @@ impl Actor for WalkerActor {
             "watchRootNode" => {
                 let msg = WatchRootNodeNotification {
                     type_: "root-available".into(),
-                    from: self.name(),
+                    from: name.clone(),
                     node: self.root_node.clone(),
                 };
                 let _ = request.write_json_packet(&msg);
 
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -285,6 +282,7 @@ impl Actor for WalkerActor {
 impl WalkerActor {
     pub(crate) fn new_mutations(
         &self,
+        name: String,
         request: &mut ClientRequest,
         target: &str,
         modifications: &[AttrModification],
@@ -294,7 +292,7 @@ impl WalkerActor {
             mutations.extend(modifications.iter().cloned().map(|m| (m, target.into())));
         }
         let _ = request.write_json_packet(&NewMutationsNotification {
-            from: self.name(),
+            from: name,
             type_: "newMutations".into(),
         });
     }

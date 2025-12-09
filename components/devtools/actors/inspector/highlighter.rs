@@ -21,7 +21,6 @@ pub struct HighlighterMsg {
 }
 
 pub struct HighlighterActor {
-    pub name: String,
     pub script_sender: GenericSender<DevtoolScriptControlMsg>,
     pub pipeline: PipelineId,
 }
@@ -35,10 +34,6 @@ struct ShowReply {
 impl Actor for HighlighterActor {
     const BASE_NAME: &str = "highlighter";
 
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
     /// The highligher actor can handle the following messages:
     ///
     /// - `show`: Enables highlighting for the selected node
@@ -46,6 +41,7 @@ impl Actor for HighlighterActor {
     /// - `hide`: Disables highlighting for the selected node
     fn handle_message(
         &self,
+        name: String,
         request: ClientRequest,
         registry: &ActorRegistry,
         msg_type: &str,
@@ -66,7 +62,7 @@ impl Actor for HighlighterActor {
                     // TODO: For some reason, the client initially asks us to highlight
                     // the inspector? Investigate what this is supposed to mean.
                     let msg = ShowReply {
-                        from: self.name(),
+                        from: name,
                         value: false,
                     };
                     return request.reply_final(&msg);
@@ -77,7 +73,7 @@ impl Actor for HighlighterActor {
                     registry,
                 );
                 let msg = ShowReply {
-                    from: self.name(),
+                    from: name,
                     value: true,
                 };
                 request.reply_final(&msg)?
@@ -86,7 +82,7 @@ impl Actor for HighlighterActor {
             "hide" => {
                 self.instruct_script_thread_to_highlight_node(None, registry);
 
-                let msg = EmptyReplyMsg { from: self.name() };
+                let msg = EmptyReplyMsg { from: name };
                 request.reply_final(&msg)?
             },
 
