@@ -70,7 +70,7 @@ pub(crate) trait Actor: Any + Send {
 /// To be able to have list of actors in `ActorRegistry`, this trait acts as a
 /// bridge for types implementing `Actor`, allowing access to its functions.
 /// <https://doc.rust-lang.org/nightly/reference/items/traits.html#r-items.traits.dyn-compatible.associated-consts>
-pub(crate) trait ActorDyn: Any + ActorAsAny + Send {
+pub(crate) trait ActorDyn: Any + Send {
     fn handle_message(
         &self,
         request: ClientRequest,
@@ -81,6 +81,8 @@ pub(crate) trait ActorDyn: Any + ActorAsAny + Send {
     ) -> Result<(), ActorError>;
     fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId);
+    fn actor_as_any(&self) -> &dyn Any;
+    fn actor_as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 impl<T: Actor> ActorDyn for T {
@@ -100,14 +102,6 @@ impl<T: Actor> ActorDyn for T {
     fn cleanup(&self, id: StreamId) {
         self.cleanup(id)
     }
-}
-
-pub(crate) trait ActorAsAny {
-    fn actor_as_any(&self) -> &dyn Any;
-    fn actor_as_any_mut(&mut self) -> &mut dyn Any;
-}
-
-impl<T: ActorDyn> ActorAsAny for T {
     fn actor_as_any(&self) -> &dyn Any {
         self
     }
