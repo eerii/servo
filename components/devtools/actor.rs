@@ -212,10 +212,10 @@ impl ActorRegistry {
     }
 
     /// Create a unique name based on a monotonically increasing suffix
-    pub fn new_name(&self, prefix: &str) -> String {
+    pub fn new_name<T: Actor>(&self) -> String {
         let suffix = self.next.get();
         self.next.set(suffix + 1);
-        format!("{}{}", prefix, suffix)
+        format!("{}{}", T::BASE_NAME, suffix)
     }
 
     /// Add an actor to the registry of known actors that can receive messages.

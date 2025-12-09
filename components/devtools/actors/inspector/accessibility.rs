@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 
 #[derive(Serialize)]
@@ -90,12 +90,14 @@ impl Actor for AccessibilityActor {
                 request.reply_final(&msg)?
             },
             "getSimulator" => {
-                // TODO: Create actual simulator
-                let simulator = registry.new_name("simulator");
+                let simulator = SimulatorActor {
+                    name: registry.new_name::<SimulatorActor>(),
+                };
                 let msg = GetSimulatorReply {
                     from: self.name(),
-                    simulator: ActorMsg { actor: simulator },
+                    simulator: simulator.encode(registry),
                 };
+                registry.register_later(simulator);
                 request.reply_final(&msg)?
             },
             "getTraits" => {
@@ -108,12 +110,14 @@ impl Actor for AccessibilityActor {
                 request.reply_final(&msg)?
             },
             "getWalker" => {
-                // TODO: Create actual accessible walker
-                let walker = registry.new_name("accesiblewalker");
+                let walker = AccessibleWalkerActor {
+                    name: registry.new_name::<AccessibleWalkerActor>(),
+                };
                 let msg = GetWalkerReply {
                     from: self.name(),
-                    walker: ActorMsg { actor: walker },
+                    walker: walker.encode(registry),
                 };
+                registry.register_later(walker);
                 request.reply_final(&msg)?
             },
             _ => return Err(ActorError::UnrecognizedPacketType),
@@ -125,5 +129,43 @@ impl Actor for AccessibilityActor {
 impl AccessibilityActor {
     pub fn new(name: String) -> Self {
         Self { name }
+    }
+}
+
+/// Placeholder for the simulator actor
+struct SimulatorActor {
+    name: String,
+}
+
+impl Actor for SimulatorActor {
+    const BASE_NAME: &str = "simulator";
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl ActorEncode<ActorMsg> for SimulatorActor {
+    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: self.name() }
+    }
+}
+
+/// Placeholder for the accessible walker actor
+struct AccessibleWalkerActor {
+    name: String,
+}
+
+impl Actor for AccessibleWalkerActor {
+    const BASE_NAME: &str = "accessible-walker";
+
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl ActorEncode<ActorMsg> for AccessibleWalkerActor {
+    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: self.name() }
     }
 }

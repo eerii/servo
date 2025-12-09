@@ -92,7 +92,7 @@ impl Actor for InspectorActor {
                     .walker
                     .borrow()
                     .clone()
-                    .unwrap_or_else(|| registry.new_name("walker"));
+                    .unwrap_or_else(|| registry.new_name::<WalkerActor>());
 
                 let root =
                     root_info.encode(registry, self.script_chan.clone(), pipeline, name.clone());
@@ -123,7 +123,7 @@ impl Actor for InspectorActor {
             "getPageStyle" => {
                 if self.page_style.borrow().is_none() {
                     let style = PageStyleActor {
-                        name: registry.new_name("page-style"),
+                        name: registry.new_name::<PageStyleActor>(),
                         script_chan: self.script_chan.clone(),
                         pipeline,
                     };
@@ -158,7 +158,7 @@ impl Actor for InspectorActor {
             "getHighlighterByType" => {
                 if self.highlighter.borrow().is_none() {
                     let highlighter_actor = HighlighterActor {
-                        name: registry.new_name("highlighter"),
+                        name: registry.new_name::<HighlighterActor>(),
                         pipeline,
                         script_sender: self.script_chan.clone(),
                     };

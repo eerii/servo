@@ -140,7 +140,7 @@ impl TabDescriptorActor {
         browsing_context_actor: String,
         is_top_level_global: bool,
     ) -> TabDescriptorActor {
-        let name = actors.new_name("tab-description");
+        let name = actors.new_name::<TabDescriptorActor>();
         let root = actors.find_mut::<RootActor>("root");
         root.tabs.push(name.clone());
         TabDescriptorActor {
