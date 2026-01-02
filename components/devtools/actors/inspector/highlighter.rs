@@ -5,31 +5,24 @@
 //! Handles highlighting selected DOM nodes in the inspector. At the moment it only replies and
 //! changes nothing on Servo's side.
 
-use base::generic_channel::GenericSender;
-use base::id::PipelineId;
-use devtools_traits::DevtoolScriptControlMsg;
+use devtools_traits::DevtoolScriptControlMsg::HighlightDomNode;
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
+use crate::actors::browsing_context::BrowsingContextActor;
 use crate::protocol::ClientRequest;
-use crate::{EmptyReplyMsg, StreamId};
-
-#[derive(Serialize)]
-pub struct HighlighterMsg {
-    pub actor: String,
-}
-
-pub struct HighlighterActor {
-    pub name: String,
-    pub script_sender: GenericSender<DevtoolScriptControlMsg>,
-    pub pipeline: PipelineId,
-}
+use crate::{ActorMsg, EmptyReplyMsg, StreamId};
 
 #[derive(Serialize)]
 struct ShowReply {
     from: String,
     value: bool,
+}
+
+pub struct HighlighterActor {
+    pub name: String,
+    pub browsing_context: String,
 }
 
 impl Actor for HighlighterActor {
@@ -50,6 +43,7 @@ impl Actor for HighlighterActor {
         msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
+        let browsing_context = registry.find::<BrowsingContextActor>(&self.browsing_context);
         match msg_type {
             "show" => {
                 let Some(node_actor) = msg.get("node") else {
@@ -70,10 +64,9 @@ impl Actor for HighlighterActor {
                     return request.reply_final(&msg);
                 }
 
-                self.instruct_script_thread_to_highlight_node(
-                    Some(node_actor_name.to_owned()),
-                    registry,
-                );
+                let node_id = registry.actor_to_script(node_actor_name.into());
+                browsing_context.send(|pipeline| HighlightDomNode(pipeline, Some(node_id)))?;
+
                 let msg = ShowReply {
                     from: self.name(),
                     value: true,
@@ -82,7 +75,7 @@ impl Actor for HighlighterActor {
             },
 
             "hide" => {
-                self.instruct_script_thread_to_highlight_node(None, registry);
+                browsing_context.send(|pipeline| HighlightDomNode(pipeline, None))?;
 
                 let msg = EmptyReplyMsg { from: self.name() };
                 request.reply_final(&msg)?
@@ -94,18 +87,8 @@ impl Actor for HighlighterActor {
     }
 }
 
-impl HighlighterActor {
-    fn instruct_script_thread_to_highlight_node(
-        &self,
-        node_actor: Option<String>,
-        registry: &ActorRegistry,
-    ) {
-        let node_id = node_actor.map(|node_actor| registry.actor_to_script(node_actor));
-        self.script_sender
-            .send(DevtoolScriptControlMsg::HighlightDomNode(
-                self.pipeline,
-                node_id,
-            ))
-            .unwrap();
+impl ActorEncode<ActorMsg> for HighlighterActor {
+    fn encode(&self, _: &ActorRegistry) -> ActorMsg {
+        ActorMsg { actor: self.name() }
     }
 }

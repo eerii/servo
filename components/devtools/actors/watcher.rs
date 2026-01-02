@@ -82,6 +82,7 @@ impl SessionContext {
                 ("network-event", true),
                 ("network-event-stacktrace", false),
                 ("reflow", true),
+                // TODO: Set stylesheet to true
                 ("stylesheet", false),
                 ("source", true),
                 ("thread-state", false),

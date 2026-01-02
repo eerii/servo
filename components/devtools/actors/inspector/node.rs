@@ -8,13 +8,15 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use base::generic_channel::{self, GenericSender};
-use base::id::PipelineId;
-use devtools_traits::{DevtoolScriptControlMsg, NodeInfo, ShadowRootMode};
+use devtools_traits::DevtoolScriptControlMsg::{
+    GetChildren, GetDocumentElement, GetXPath, ModifyAttribute,
+};
+use devtools_traits::{NodeInfo, ShadowRootMode};
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
 use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::inspector::walker::WalkerActor;
 use crate::protocol::ClientRequest;
 use crate::{EmptyReplyMsg, StreamId};
@@ -101,8 +103,6 @@ pub struct NodeActorMsg {
 
 pub struct NodeActor {
     name: String,
-    pub script_chan: GenericSender<DevtoolScriptControlMsg>,
-    pub pipeline: PipelineId,
     pub walker: String,
     pub style_rules: RefCell<HashMap<(String, usize), String>>,
 }
@@ -126,6 +126,9 @@ impl Actor for NodeActor {
         msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
+        let walker = registry.find::<WalkerActor>(&self.walker);
+        let browsing_context = registry.find::<BrowsingContextActor>(&walker.browsing_context);
+
         match msg_type {
             "modifyAttributes" => {
                 let mods = msg
@@ -143,36 +146,24 @@ impl Actor for NodeActor {
                 let walker = registry.find::<WalkerActor>(&self.walker);
                 walker.new_mutations(&mut request, &self.name, &modifications);
 
-                self.script_chan
-                    .send(DevtoolScriptControlMsg::ModifyAttribute(
-                        self.pipeline,
+                browsing_context.send(|pipeline| {
+                    ModifyAttribute(
+                        pipeline,
                         registry.actor_to_script(self.name()),
                         modifications,
-                    ))
-                    .map_err(|_| ActorError::Internal)?;
+                    )
+                })?;
 
                 let reply = EmptyReplyMsg { from: self.name() };
                 request.reply_final(&reply)?
             },
 
             "getUniqueSelector" => {
-                let (tx, rx) = generic_channel::channel().unwrap();
-                self.script_chan
-                    .send(DevtoolScriptControlMsg::GetDocumentElement(
-                        self.pipeline,
-                        tx,
-                    ))
-                    .unwrap();
-                let doc_elem_info = rx
-                    .recv()
-                    .map_err(|_| ActorError::Internal)?
+                let doc_elem_info = browsing_context
+                    .send_rx(|pipeline, tx| GetDocumentElement(pipeline, tx))?
                     .ok_or(ActorError::Internal)?;
-                let node = doc_elem_info.encode(
-                    registry,
-                    self.script_chan.clone(),
-                    self.pipeline,
-                    self.walker.clone(),
-                );
+
+                let node = doc_elem_info.encode(registry, self.walker.clone(), &walker.browsing_context);
 
                 let msg = GetUniqueSelectorReply {
                     from: self.name(),
@@ -186,17 +177,11 @@ impl Actor for NodeActor {
                     .ok_or(ActorError::MissingParameter)?
                     .as_str()
                     .ok_or(ActorError::BadParameterType)?;
+                let target_id = registry.actor_to_script(target.to_owned());
 
-                let (tx, rx) = generic_channel::channel().unwrap();
-                self.script_chan
-                    .send(DevtoolScriptControlMsg::GetXPath(
-                        self.pipeline,
-                        registry.actor_to_script(target.to_owned()),
-                        tx,
-                    ))
-                    .unwrap();
+                let xpath_selector =
+                    browsing_context.send_rx(|pipeline, tx| GetXPath(pipeline, target_id, tx))?;
 
-                let xpath_selector = rx.recv().map_err(|_| ActorError::Internal)?;
                 let msg = GetXPathReply {
                     from: self.name(),
                     value: xpath_selector,
@@ -211,39 +196,28 @@ impl Actor for NodeActor {
 }
 
 pub trait NodeInfoToProtocol {
-    fn encode(
-        self,
-        actors: &ActorRegistry,
-        script_chan: GenericSender<DevtoolScriptControlMsg>,
-        pipeline: PipelineId,
-        walker: String,
-    ) -> NodeActorMsg;
+    fn encode(self, registry: &ActorRegistry, walker: String, browsing_context: &str) -> NodeActorMsg;
 }
 
 impl NodeInfoToProtocol for NodeInfo {
-    fn encode(
-        self,
-        actors: &ActorRegistry,
-        script_chan: GenericSender<DevtoolScriptControlMsg>,
-        pipeline: PipelineId,
-        walker: String,
-    ) -> NodeActorMsg {
+    fn encode(self, registry: &ActorRegistry, walker: String, browsing_context: &str) -> NodeActorMsg {
+        let browsing_context_actor =
+            registry.find::<BrowsingContextActor>(&browsing_context);
+
         let get_or_register_node_actor = |id: &str| {
-            if !actors.script_actor_registered(id.to_string()) {
-                let name = actors.new_name("node");
-                actors.register_script_actor(id.to_string(), name.clone());
+            if !registry.script_actor_registered(id.to_string()) {
+                let name = registry.new_name("node");
+                registry.register_script_actor(id.to_string(), name.clone());
 
                 let node_actor = NodeActor {
                     name: name.clone(),
-                    script_chan: script_chan.clone(),
-                    pipeline,
                     walker: walker.clone(),
                     style_rules: RefCell::new(HashMap::new()),
                 };
-                actors.register_later(node_actor);
+                registry.register_later(node_actor);
                 name
             } else {
-                actors.script_to_actor(id.to_string())
+                registry.script_to_actor(id.to_string())
             }
         };
 
@@ -253,7 +227,7 @@ impl NodeInfoToProtocol for NodeInfo {
             .as_ref()
             .map(|host_id| get_or_register_node_actor(host_id));
 
-        let name = actors.actor_to_script(actor.clone());
+        let name = registry.actor_to_script(actor.clone());
 
         // If a node only has a single text node as a child whith a small enough text,
         // return it with this node as an `inlineTextChild`.
@@ -263,18 +237,12 @@ impl NodeInfoToProtocol for NodeInfo {
                 return None;
             }
 
-            let (tx, rx) = generic_channel::channel()?;
-            script_chan
-                .send(DevtoolScriptControlMsg::GetChildren(
-                    pipeline,
-                    name.clone(),
-                    tx,
-                ))
-                .unwrap();
-            let mut children = rx.recv().ok()??;
+            let mut children = browsing_context_actor
+                .send_rx(|pipeline, tx| GetChildren(pipeline, name.clone(), tx))
+                .ok()??;
 
             let child = children.pop()?;
-            let msg = child.encode(actors, script_chan.clone(), pipeline, walker);
+            let msg = child.encode(registry, walker, browsing_context);
 
             // If the node child is not a text node, do not represent it inline.
             if msg.node_type != TEXT_NODE {
@@ -314,7 +282,7 @@ impl NodeInfoToProtocol for NodeInfo {
             node_type: self.node_type,
             node_value: self.node_value,
             num_children: self.num_children,
-            parent: actors.script_to_actor(self.parent.clone()),
+            parent: registry.script_to_actor(self.parent.clone()),
             shadow_root_mode: self
                 .shadow_root_mode
                 .as_ref()

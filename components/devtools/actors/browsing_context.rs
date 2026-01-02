@@ -18,6 +18,7 @@ use devtools_traits::DevtoolScriptControlMsg::{
 use devtools_traits::{DevtoolsPageInfo, NavigationState};
 use embedder_traits::Theme;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
@@ -137,6 +138,7 @@ pub(crate) struct BrowsingContextActor {
     pub url: RefCell<String>,
     /// This corresponds to webview_id
     pub browser_id: DevtoolsBrowserId,
+    // TODO: MAKE PRIVATE
     pub active_pipeline_id: Cell<PipelineId>,
     pub active_outer_window_id: Cell<DevtoolsOuterWindowId>,
     pub browsing_context_id: DevtoolsBrowsingContextId,
@@ -148,6 +150,7 @@ pub(crate) struct BrowsingContextActor {
     pub style_sheets: String,
     pub thread: String,
     pub _tab: String,
+    // TODO: MAKE PRIVATE
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
     pub streams: RefCell<HashMap<StreamId, TcpStream>>,
     pub watcher: String,
@@ -229,14 +232,7 @@ impl BrowsingContextActor {
         .unwrap_or_default();
         let css_properties = CssPropertiesActor::new(actors.new_name("css-properties"), properties);
 
-        let inspector = InspectorActor {
-            name: actors.new_name("inspector"),
-            walker: RefCell::new(None),
-            page_style: RefCell::new(None),
-            highlighter: RefCell::new(None),
-            script_chan: script_sender.clone(),
-            browsing_context: name.clone(),
-        };
+        let inspector = InspectorActor::register(actors, name.clone());
 
         let reflow = ReflowActor::new(actors.new_name("reflow"));
 
@@ -264,7 +260,7 @@ impl BrowsingContextActor {
             accessibility: accessibility.name(),
             console,
             css_properties: css_properties.name(),
-            inspector: inspector.name(),
+            inspector,
             reflow: reflow.name(),
             streams: RefCell::new(HashMap::new()),
             style_sheets: style_sheets.name(),
@@ -275,7 +271,6 @@ impl BrowsingContextActor {
 
         actors.register(accessibility);
         actors.register(css_properties);
-        actors.register(inspector);
         actors.register(reflow);
         actors.register(style_sheets);
         actors.register(tabdesc);
@@ -315,6 +310,33 @@ impl BrowsingContextActor {
         for stream in self.streams.borrow_mut().values_mut() {
             let _ = stream.write_json_packet(&msg);
         }
+    }
+
+    /// Sends a message to script using the current active pipeline id.
+    pub fn send<F: FnOnce(PipelineId) -> DevtoolScriptControlMsg>(
+        &self,
+        msg: F,
+    ) -> Result<(), ActorError> {
+        self.script_chan
+            .send(msg(self.active_pipeline_id.get()))
+            .map_err(|_| ActorError::Internal)?;
+        Ok(())
+    }
+
+    /// Sends a message to script using the current active pipeline id.
+    /// Uses a sender and a receiver to get a reply.
+    pub fn send_rx<
+        T: Serialize + DeserializeOwned,
+        F: FnOnce(PipelineId, GenericSender<T>) -> DevtoolScriptControlMsg,
+    >(
+        &self,
+        msg: F,
+    ) -> Result<T, ActorError> {
+        let (tx, rx) = generic_channel::channel().unwrap();
+        self.script_chan
+            .send(msg(self.active_pipeline_id.get(), tx))
+            .map_err(|_| ActorError::Internal)?;
+        rx.recv().map_err(|_| ActorError::Internal)
     }
 
     pub(crate) fn title_changed(&self, pipeline_id: PipelineId, title: String) {

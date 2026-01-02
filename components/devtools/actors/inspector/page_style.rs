@@ -9,15 +9,15 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::iter::once;
 
-use base::generic_channel::{self, GenericSender};
-use base::id::PipelineId;
+use base::generic_channel::{self};
+use devtools_traits::ComputedNodeLayout;
 use devtools_traits::DevtoolScriptControlMsg::{GetLayout, GetSelectors};
-use devtools_traits::{ComputedNodeLayout, DevtoolScriptControlMsg};
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
 use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
+use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::inspector::node::NodeActor;
 use crate::actors::inspector::style_rule::{AppliedRule, ComputedDeclaration, StyleRuleActor};
 use crate::actors::inspector::walker::{WalkerActor, find_child};
@@ -91,8 +91,6 @@ pub struct PageStyleMsg {
 
 pub struct PageStyleActor {
     pub name: String,
-    pub script_chan: GenericSender<DevtoolScriptControlMsg>,
-    pub pipeline: PipelineId,
 }
 
 impl Actor for PageStyleActor {
@@ -141,14 +139,16 @@ impl PageStyleActor {
             .ok_or(ActorError::MissingParameter)?
             .as_str()
             .ok_or(ActorError::BadParameterType)?;
+
         let node = registry.find::<NodeActor>(target);
         let walker = registry.find::<WalkerActor>(&node.walker);
+        let browsing_context = registry.find::<BrowsingContextActor>(&walker.browsing_context);
+
         let entries: Vec<_> = find_child(
-            &node.script_chan,
-            node.pipeline,
             target,
             registry,
-            &walker.root_node.actor,
+            &walker.root(registry)?.actor,
+            browsing_context,
             vec![],
             |msg| msg.actor == target,
         )
@@ -157,19 +157,13 @@ impl PageStyleActor {
         .flat_map(|node| {
             let inherited = (node.actor != target).then(|| node.actor.clone());
             let node_actor = registry.find::<NodeActor>(&node.actor);
+            let node_id = registry.actor_to_script(node.actor.clone());
 
             // Get the css selectors that match this node present in the currently active stylesheets.
             let selectors = (|| {
-                let (selectors_sender, selector_receiver) = generic_channel::channel()?;
-                walker
-                    .script_chan
-                    .send(GetSelectors(
-                        walker.pipeline,
-                        registry.actor_to_script(node.actor.clone()),
-                        selectors_sender,
-                    ))
-                    .ok()?;
-                selector_receiver.recv().ok()?
+                browsing_context
+                    .send_rx(|pipeline, tx| GetSelectors(pipeline, node_id, tx))
+                    .ok()?
             })()
             .unwrap_or_default();
 
@@ -212,6 +206,7 @@ impl PageStyleActor {
                 })
         })
         .collect();
+
         let msg = GetAppliedReply {
             entries,
             from: self.name(),
@@ -272,13 +267,14 @@ impl PageStyleActor {
         else {
             return Err(ActorError::Internal);
         };
-        self.script_chan
-            .send(GetLayout(
-                self.pipeline,
-                registry.actor_to_script(target.to_owned()),
-                computed_node_sender,
-            ))
-            .unwrap();
+
+        let node = registry.find::<NodeActor>(target);
+        let walker = registry.find::<WalkerActor>(&node.walker);
+        let browsing_context = registry.find::<BrowsingContextActor>(&walker.browsing_context);
+
+        let node_id = registry.actor_to_script(target.into());
+        browsing_context.send(|pipeline| GetLayout(pipeline, node_id, computed_node_sender))?;
+
         let ComputedNodeLayout {
             display,
             position,
@@ -358,5 +354,19 @@ impl PageStyleActor {
             value: false,
         };
         request.reply_final(&msg)
+    }
+}
+
+impl ActorEncode<PageStyleMsg> for PageStyleActor {
+    fn encode(&self, _: &ActorRegistry) -> PageStyleMsg {
+        PageStyleMsg {
+            actor: self.name(),
+            traits: HashMap::from([
+                ("fontStretchLevel4".into(), true),
+                ("fontStyleLevel4".into(), true),
+                ("fontVariations".into(), true),
+                ("fontWeightLevel4".into(), true),
+            ]),
+        }
     }
 }
