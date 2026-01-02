@@ -149,7 +149,6 @@ impl<'req> ClientRequest<'req, '_> {
 
     /// Like `reply`, but for cases where the actor no longer needs the stream.
     pub fn reply_final<T: Serialize>(self, reply: &T) -> Result<(), ActorError> {
-        debug_assert!(self.is_valid_reply(reply), "Message is not a valid reply");
         let _stream = self.reply(reply)?;
         Ok(())
     }

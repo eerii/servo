@@ -13,10 +13,31 @@ use serde_json::{Map, Value};
 use servo_url::ServoUrl;
 
 use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::protocol::ClientRequest;
 
-/// A `sourceForm` as used in responses to thread `sources` requests.
+#[derive(Default)]
+pub(crate) struct SourceManager {
+    source_actor_names: AtomicRefCell<BTreeSet<String>>,
+}
+
+impl SourceManager {
+    pub fn add_source(&self, actor_name: &str) {
+        self.source_actor_names
+            .borrow_mut()
+            .insert(actor_name.to_owned());
+    }
+
+    pub fn encode(&self, registry: &ActorRegistry) -> Vec<SourceActorMsg> {
+        self.source_actor_names
+            .borrow()
+            .iter()
+            .map(|actor_name| registry.encode::<SourceActor, _>(actor_name))
+            .collect()
+    }
+}
+
+/// A `SourceActorMsg` is used in responses to thread `sources` requests.
 ///
 /// For now, we also use this for sources in watcher `resource-available-array` messages,
 /// but in Firefox those have extra fields.
@@ -24,7 +45,7 @@ use crate::protocol::ClientRequest;
 /// <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#loading-script-sources>
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SourceForm {
+pub(crate) struct SourceActorMsg {
     pub actor: String,
     /// URL of the script, or URL of the page for inline scripts.
     pub url: String,
@@ -36,34 +57,7 @@ pub(crate) struct SourceForm {
 #[derive(Serialize)]
 pub(crate) struct SourcesReply {
     pub from: String,
-    pub sources: Vec<SourceForm>,
-}
-
-pub(crate) struct SourceManager {
-    source_actor_names: AtomicRefCell<BTreeSet<String>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct SourceActor {
-    /// Actor name.
-    pub name: String,
-
-    /// URL of the script, or URL of the page for inline scripts.
-    pub url: ServoUrl,
-
-    /// The ‘black-boxed’ flag, which tells the debugger to avoid pausing inside this script.
-    /// <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#black-boxing-sources>
-    pub is_black_boxed: bool,
-
-    pub content: AtomicRefCell<Option<String>>,
-    pub content_type: Option<String>,
-
-    // TODO: use it in #37667, then remove this allow
-    pub spidermonkey_id: u32,
-    /// `introductionType` in SpiderMonkey `CompileOptionsWrapper`.
-    pub introduction_type: String,
-
-    script_sender: GenericSender<DevtoolScriptControlMsg>,
+    pub sources: Vec<SourceActorMsg>,
 }
 
 #[derive(Serialize)]
@@ -92,50 +86,30 @@ struct GetBreakpointPositionsCompressedReply {
     positions: BTreeMap<u32, BTreeSet<u32>>,
 }
 
-impl SourceManager {
-    pub fn new() -> Self {
-        Self {
-            source_actor_names: AtomicRefCell::new(BTreeSet::default()),
-        }
-    }
+#[derive(Clone, Debug)]
+pub struct SourceActor {
+    /// Actor name.
+    pub name: String,
 
-    pub fn add_source(&self, actor_name: &str) {
-        self.source_actor_names
-            .borrow_mut()
-            .insert(actor_name.to_owned());
-    }
+    /// URL of the script, or URL of the page for inline scripts.
+    pub url: ServoUrl,
 
-    pub fn source_forms(&self, actors: &ActorRegistry) -> Vec<SourceForm> {
-        self.source_actor_names
-            .borrow()
-            .iter()
-            .map(|actor_name| actors.find::<SourceActor>(actor_name).source_form())
-            .collect()
-    }
+    /// The ‘black-boxed’ flag, which tells the debugger to avoid pausing inside this script.
+    /// <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#black-boxing-sources>
+    pub is_black_boxed: bool,
+
+    pub content: AtomicRefCell<Option<String>>,
+    pub content_type: Option<String>,
+
+    // TODO: use it in #37667, then remove this allow
+    pub spidermonkey_id: u32,
+    /// `introductionType` in SpiderMonkey `CompileOptionsWrapper`.
+    pub introduction_type: String,
+
+    pub script_sender: GenericSender<DevtoolScriptControlMsg>,
 }
 
 impl SourceActor {
-    pub fn new(
-        name: String,
-        url: ServoUrl,
-        content: Option<String>,
-        content_type: Option<String>,
-        spidermonkey_id: u32,
-        introduction_type: String,
-        script_sender: GenericSender<DevtoolScriptControlMsg>,
-    ) -> SourceActor {
-        SourceActor {
-            name,
-            url,
-            content: AtomicRefCell::new(content),
-            content_type,
-            is_black_boxed: false,
-            spidermonkey_id,
-            introduction_type,
-            script_sender,
-        }
-    }
-
     #[expect(clippy::too_many_arguments)]
     pub fn new_registered(
         actors: &ActorRegistry,
@@ -149,28 +123,20 @@ impl SourceActor {
     ) -> String {
         let source_actor_name = actors.new_name::<Self>();
 
-        let source_actor = SourceActor::new(
-            source_actor_name.clone(),
+        let source_actor = SourceActor {
+            name: source_actor_name.clone(),
             url,
-            content,
+            content: content.into(),
             content_type,
+            is_black_boxed: false,
             spidermonkey_id,
             introduction_type,
             script_sender,
-        );
+        };
         actors.register(source_actor);
         actors.register_source_actor(pipeline_id, &source_actor_name);
 
         source_actor_name
-    }
-
-    pub fn source_form(&self) -> SourceForm {
-        SourceForm {
-            actor: self.name.clone(),
-            url: self.url.to_string(),
-            is_black_boxed: self.is_black_boxed,
-            introduction_type: self.introduction_type.clone(),
-        }
     }
 }
 
@@ -263,5 +229,16 @@ impl Actor for SourceActor {
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
+    }
+}
+
+impl ActorEncode<SourceActorMsg> for SourceActor {
+    fn encode(&self, _: &ActorRegistry) -> SourceActorMsg {
+        SourceActorMsg {
+            actor: self.name.clone(),
+            url: self.url.to_string(),
+            is_black_boxed: self.is_black_boxed,
+            introduction_type: self.introduction_type.clone(),
+        }
     }
 }

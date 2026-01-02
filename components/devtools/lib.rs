@@ -558,7 +558,7 @@ impl DevtoolsInstance {
             source_info.introduction_type,
             script_sender,
         );
-        let source_form = actors.find::<SourceActor>(&source_actor).source_form();
+        let source_form = actors.encode::<SourceActor, _>(&source_actor);
 
         if let Some(worker_id) = source_info.worker_id {
             let Some(worker_actor_name) = self.actor_workers.get(&worker_id) else {

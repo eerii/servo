@@ -311,7 +311,7 @@ impl Actor for WatcherActor {
                         "source" => {
                             let thread_actor = registry.find::<ThreadActor>(&target.thread);
                             target.resources_array(
-                                thread_actor.source_manager.source_forms(registry),
+                                thread_actor.source_manager.encode(registry),
                                 "source".into(),
                                 ResourceArrayType::Available,
                                 &mut request,
@@ -322,7 +322,7 @@ impl Actor for WatcherActor {
                                 let thread = registry.find::<ThreadActor>(&worker.thread);
 
                                 worker.resources_array(
-                                    thread.source_manager.source_forms(registry),
+                                    thread.source_manager.encode(registry),
                                     "source".into(),
                                     ResourceArrayType::Available,
                                     &mut request,

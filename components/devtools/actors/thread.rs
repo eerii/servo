@@ -6,47 +6,118 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use super::source::{SourceManager, SourcesReply};
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor,  ActorError, ActorRegistry};
+use crate::actors::frame::{FrameActor, FrameActorMsg};
 use crate::actors::pause::PauseActor;
 use crate::protocol::{ClientRequest, JsonPacketStream};
 use crate::{EmptyReplyMsg, StreamId};
 
+/// Explains why a thread is in a certain state.
+/// <https://searchfox.org/firefox-main/rev/main/devtools/server/actors/thread.js#156>
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ThreadWhyReason {
+    /// A client has attached to the thread.
+    #[default]
+    Attached,
+    /// The thread has stopped because it received an `interrupt` packet from the client.
+    Interrupted,
+    // Not implemented in Servo
+    _AlreadyPaused,
+    _DebuggerStatement,
+    _Exception,
+    _EventBreakpoint,
+    _MutationBreakpoint,
+    _ResumeLimit,
+    _XHR,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadWhy {
+    /// Reason why the thread is in the state.
+    #[serde(rename = "type")]
+    type_: ThreadWhyReason,
+    /// Only for `WhyReason::EventBreakpoint`.
+    /// List of breakpoint actors.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    actors: Vec<String>,
+    /// Only for `WhyReason::Interrupted`.
+    /// Indicates if the execution should pause immediately.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    on_next: Option<bool>,
+}
+
+/// Thread actor possible states.
+/// <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#141>
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThreadAttached {
+enum ThreadState {
+    /// The client is attached and the thread is paused because of a breakpoint or an interrupt.
+    Paused,
+    // Not implemented in Servo
+    _Dettached,
+    _Exited,
+    _Resumed,
+    _Running,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadAttachReply {
     from: String,
     #[serde(rename = "type")]
-    type_: String,
+    type_: ThreadState,
     actor: String,
-    frame: u32,
     error: u32,
-    recording_endpoint: u32,
     execution_point: u32,
-    popped_frames: Vec<PoppedFrameMsg>,
-    why: WhyMsg,
+    frame: u32,
+    recording_endpoint: u32,
+    why: ThreadWhy,
 }
 
 #[derive(Serialize)]
-enum PoppedFrameMsg {}
-
-#[derive(Serialize)]
-struct WhyMsg {
+struct ThreadInterruptReply {
+    from: String,
     #[serde(rename = "type")]
-    type_: String,
+    type_: ThreadState,
+    actor: String,
+    frame: FrameActorMsg,
+    why: ThreadWhy,
 }
 
 #[derive(Serialize)]
-struct ThreadResumedReply {
+struct ThreadResumeReply {
     from: String,
     #[serde(rename = "type")]
     type_: String,
 }
 
 #[derive(Serialize)]
-struct ThreadInterruptedReply {
-    from: String,
+#[serde(rename_all = "camelCase")]
+enum EventBreakpointType {
+    _Event,
+    _Simple,
+}
+
+#[derive(Serialize)]
+struct EventBreakpointEvent {
+    id: String,
+    name: String,
     #[serde(rename = "type")]
-    type_: String,
+    type_: EventBreakpointType,
+}
+
+#[derive(Serialize)]
+struct EventBreakpoint {
+    name: String,
+    events: Vec<EventBreakpointEvent>,
+}
+
+#[derive(Serialize)]
+struct GetAvailableEventBreakpointsReply {
+    from: String,
+    value: Vec<EventBreakpoint>,
 }
 
 pub struct ThreadActor {
@@ -58,7 +129,7 @@ impl ThreadActor {
     pub fn new(name: String) -> ThreadActor {
         ThreadActor {
             name: name.clone(),
-            source_manager: SourceManager::new(),
+            source_manager: Default::default(),
         }
     }
 }
@@ -82,36 +153,56 @@ impl Actor for ThreadActor {
                 registry.register(PauseActor {
                     name: pause.clone(),
                 });
-                let msg = ThreadAttached {
+                let msg = ThreadAttachReply {
                     from: self.name(),
-                    type_: "paused".to_owned(),
+                    type_: ThreadState::Paused,
                     actor: pause,
-                    frame: 0,
                     error: 0,
-                    recording_endpoint: 0,
                     execution_point: 0,
-                    popped_frames: vec![],
-                    why: WhyMsg {
-                        type_: "attached".to_owned(),
+                    frame: 0,
+                    recording_endpoint: 0,
+                    why: ThreadWhy {
+                        type_: ThreadWhyReason::Attached,
+                        ..Default::default()
                     },
                 };
                 request.write_json_packet(&msg)?;
                 request.reply_final(&EmptyReplyMsg { from: self.name() })?
             },
 
-            "resume" => {
-                let msg = ThreadResumedReply {
+            "getAvailableEventBreakpoints" => {
+                // TODO: Send list of available event breakpoints (animation, clipboard, load...)
+                let msg = GetAvailableEventBreakpointsReply {
                     from: self.name(),
-                    type_: "resumed".to_owned(),
+                    value: vec![],
                 };
-                request.write_json_packet(&msg)?;
-                request.reply_final(&EmptyReplyMsg { from: self.name() })?
+                request.reply_final(&msg)?
             },
 
             "interrupt" => {
-                let msg = ThreadInterruptedReply {
+                let pause = registry.new_name::<PauseActor>();
+                registry.register(PauseActor {
+                    name: pause.clone(),
+                });
+
+                let frame = registry.new_name::<FrameActor>();
+                registry.register(FrameActor {
+                    name: frame.clone(),
+                    // TODO: Get the source and object actors here
+                    source_actor: "".into(),
+                    object_actor: "".into(),
+                });
+
+                let msg = ThreadInterruptReply {
                     from: self.name(),
-                    type_: "interrupted".to_owned(),
+                    type_: ThreadState::Paused,
+                    actor: pause,
+                    frame: registry.encode::<FrameActor, _>(&frame),
+                    why: ThreadWhy {
+                        type_: ThreadWhyReason::Interrupted,
+                        on_next: Some(true),
+                        ..Default::default()
+                    },
                 };
                 request.write_json_packet(&msg)?;
                 request.reply_final(&EmptyReplyMsg { from: self.name() })?
@@ -119,15 +210,18 @@ impl Actor for ThreadActor {
 
             "reconfigure" => request.reply_final(&EmptyReplyMsg { from: self.name() })?,
 
+            // "resume" => {},
+
             // Client has attached to the thread and wants to load script sources.
             // <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#loading-script-sources>
             "sources" => {
                 let msg = SourcesReply {
                     from: self.name(),
-                    sources: self.source_manager.source_forms(registry),
+                    sources: self.source_manager.encode(registry),
                 };
                 request.reply_final(&msg)?
             },
+
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
