@@ -33,7 +33,7 @@ use resource::{ResourceArrayType, ResourceAvailable};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
-use crate::actor::{Actor, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorRegistry};
 use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::console::{ConsoleActor, Root};
 use crate::actors::framerate::FramerateActor;
@@ -565,7 +565,7 @@ impl DevtoolsInstance {
             script_sender,
         );
         let source_actor_name = source_actor.name.clone();
-        let source_form = source_actor.source_form();
+        let source_form = source_actor.encode(actors);
 
         if let Some(worker_id) = source_info.worker_id {
             let Some(worker_actor_name) = self.actor_workers.get(&worker_id) else {
