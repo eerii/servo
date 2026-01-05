@@ -229,7 +229,7 @@ impl BrowsingContextActor {
         .unwrap_or_default();
         let css_properties = CssPropertiesActor::new(actors.new_name("css-properties"), properties);
 
-        let inspector = InspectorActor::register(actors, pipeline_id, script_sender.clone());
+        let inspector = InspectorActor::register(actors, name.clone());
 
         let reflow = ReflowActor::new(actors.new_name("reflow"));
 

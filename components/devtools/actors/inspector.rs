@@ -6,9 +6,6 @@
 
 use std::cell::RefCell;
 
-use base::generic_channel::GenericSender;
-use base::id::PipelineId;
-use devtools_traits::DevtoolScriptControlMsg;
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
@@ -113,30 +110,23 @@ impl Actor for InspectorActor {
 }
 
 impl InspectorActor {
-    // TODO: Passing the pipeline id here isn't correct. We should query the browsing
-    // context for the active pipeline, otherwise reloading or navigating will break the inspector.
     pub fn register(
         registry: &mut ActorRegistry,
-        pipeline: PipelineId,
-        script_chan: GenericSender<DevtoolScriptControlMsg>,
+        browsing_context: String,
     ) -> String {
         let highlighter = HighlighterActor {
             name: registry.new_name("highlighter"),
-            script_sender: script_chan.clone(),
-            pipeline,
+            browsing_context: browsing_context.clone(),
         };
 
         let page_style = PageStyleActor {
             name: registry.new_name("page-style"),
-            script_chan: script_chan.clone(),
-            pipeline,
         };
 
         let walker = WalkerActor {
             name: registry.new_name("walker"),
+            browsing_context,
             mutations: RefCell::new(vec![]),
-            script_chan,
-            pipeline,
         };
 
         let actor = Self {

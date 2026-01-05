@@ -9,15 +9,15 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::iter::once;
 
-use base::generic_channel::{self, GenericSender};
-use base::id::PipelineId;
+use base::generic_channel;
+use devtools_traits::ComputedNodeLayout;
 use devtools_traits::DevtoolScriptControlMsg::{GetLayout, GetSelectors};
-use devtools_traits::{ComputedNodeLayout, DevtoolScriptControlMsg};
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
 use crate::StreamId;
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
+use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::inspector::node::NodeActor;
 use crate::actors::inspector::style_rule::{AppliedRule, ComputedDeclaration, StyleRuleActor};
 use crate::actors::inspector::walker::{WalkerActor, find_child};
@@ -91,8 +91,6 @@ pub struct PageStyleMsg {
 
 pub struct PageStyleActor {
     pub name: String,
-    pub script_chan: GenericSender<DevtoolScriptControlMsg>,
-    pub pipeline: PipelineId,
 }
 
 impl Actor for PageStyleActor {
@@ -143,6 +141,8 @@ impl PageStyleActor {
             .ok_or(ActorError::BadParameterType)?;
         let node = registry.find::<NodeActor>(target);
         let walker = registry.find::<WalkerActor>(&node.walker);
+        let browsing_context = registry.find::<BrowsingContextActor>(&walker.browsing_context);
+
         let entries: Vec<_> = find_child(
             &node.script_chan,
             node.pipeline,
@@ -160,16 +160,16 @@ impl PageStyleActor {
 
             // Get the css selectors that match this node present in the currently active stylesheets.
             let selectors = (|| {
-                let (selectors_sender, selector_receiver) = generic_channel::channel()?;
-                walker
+                let (tx, rx) = generic_channel::channel()?;
+                browsing_context
                     .script_chan
                     .send(GetSelectors(
-                        walker.pipeline,
+                        browsing_context.active_pipeline_id.get(),
                         registry.actor_to_script(node.actor.clone()),
-                        selectors_sender,
+                        tx,
                     ))
                     .ok()?;
-                selector_receiver.recv().ok()?
+                rx.recv().ok()?
             })()
             .unwrap_or_default();
 
@@ -268,17 +268,20 @@ impl PageStyleActor {
             .ok_or(ActorError::MissingParameter)?
             .as_str()
             .ok_or(ActorError::BadParameterType)?;
-        let Some((computed_node_sender, computed_node_receiver)) = generic_channel::channel()
-        else {
-            return Err(ActorError::Internal);
-        };
-        self.script_chan
+        let node = registry.find::<NodeActor>(target);
+        let walker = registry.find::<WalkerActor>(&node.walker);
+        let browsing_context = registry.find::<BrowsingContextActor>(&walker.browsing_context);
+
+        let (tx, rx) = generic_channel::channel().ok_or(ActorError::Internal)?;
+        browsing_context
+            .script_chan
             .send(GetLayout(
-                self.pipeline,
+                browsing_context.active_pipeline_id.get(),
                 registry.actor_to_script(target.to_owned()),
-                computed_node_sender,
+                tx,
             ))
-            .unwrap();
+            .map_err(|_| ActorError::Internal)?;
+
         let ComputedNodeLayout {
             display,
             position,
@@ -299,7 +302,7 @@ impl PageStyleActor {
             padding_left,
             width,
             height,
-        } = computed_node_receiver
+        } = rx
             .recv()
             .map_err(|_| ActorError::Internal)?
             .ok_or(ActorError::Internal)?;

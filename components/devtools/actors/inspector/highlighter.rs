@@ -5,20 +5,18 @@
 //! Handles highlighting selected DOM nodes in the inspector. At the moment it only replies and
 //! changes nothing on Servo's side.
 
-use base::generic_channel::GenericSender;
-use base::id::PipelineId;
-use devtools_traits::DevtoolScriptControlMsg;
+use devtools_traits::DevtoolScriptControlMsg::HighlightDomNode;
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
+use crate::actors::browsing_context::BrowsingContextActor;
 use crate::protocol::ClientRequest;
 use crate::{ActorMsg, EmptyReplyMsg, StreamId};
 
 pub struct HighlighterActor {
     pub name: String,
-    pub script_sender: GenericSender<DevtoolScriptControlMsg>,
-    pub pipeline: PipelineId,
+    pub browsing_context: String,
 }
 
 #[derive(Serialize)]
@@ -45,6 +43,8 @@ impl Actor for HighlighterActor {
         msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
+        let browsing_context = registry.find::<BrowsingContextActor>(&self.browsing_context);
+
         match msg_type {
             "show" => {
                 let Some(node_actor) = msg.get("node") else {
@@ -65,10 +65,14 @@ impl Actor for HighlighterActor {
                     return request.reply_final(&msg);
                 }
 
-                self.instruct_script_thread_to_highlight_node(
-                    Some(node_actor_name.to_owned()),
-                    registry,
-                );
+                browsing_context
+                    .script_chan
+                    .send(HighlightDomNode(
+                        browsing_context.active_pipeline_id.get(),
+                        Some(registry.actor_to_script(node_actor_name.into())),
+                    ))
+                    .map_err(|_| ActorError::Internal)?;
+
                 let msg = ShowReply {
                     from: self.name(),
                     value: true,
@@ -77,7 +81,10 @@ impl Actor for HighlighterActor {
             },
 
             "hide" => {
-                self.instruct_script_thread_to_highlight_node(None, registry);
+                browsing_context
+                    .script_chan
+                    .send(HighlightDomNode(browsing_context.active_pipeline_id.get(), None))
+                    .map_err(|_| ActorError::Internal)?;
 
                 let msg = EmptyReplyMsg { from: self.name() };
                 request.reply_final(&msg)?
@@ -86,22 +93,6 @@ impl Actor for HighlighterActor {
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
-    }
-}
-
-impl HighlighterActor {
-    fn instruct_script_thread_to_highlight_node(
-        &self,
-        node_actor: Option<String>,
-        registry: &ActorRegistry,
-    ) {
-        let node_id = node_actor.map(|node_actor| registry.actor_to_script(node_actor));
-        self.script_sender
-            .send(DevtoolScriptControlMsg::HighlightDomNode(
-                self.pipeline,
-                node_id,
-            ))
-            .unwrap();
     }
 }
 

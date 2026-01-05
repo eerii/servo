@@ -7,6 +7,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base::id::PipelineId;
 use base64::engine::Engine;
 use base64::engine::general_purpose::STANDARD;
 use chrono::{Local, LocalResult, TimeZone};
@@ -20,6 +21,8 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use servo_url::ServoUrl;
 
+use crate::actors::browsing_context::BrowsingContextActor;
+use crate::actors::watcher::WatcherActor;
 use crate::StreamId;
 use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::actors::long_string::LongStringActor;
@@ -58,7 +61,7 @@ pub struct NetworkEventActor {
 pub struct NetworkEventResource {
     pub resource_id: u64,
     pub resource_updates: Map<String, Value>,
-    pub browsing_context_id: u64,
+    pub browsing_context_id: PipelineId,
     pub inner_window_id: u64,
 }
 
@@ -811,7 +814,7 @@ impl NetworkEventActor {
         }
     }
 
-    pub fn resource_updates(&self) -> NetworkEventResource {
+    pub fn resource_updates(&self, registry: &ActorRegistry) -> NetworkEventResource {
         let mut resource_updates = Map::new();
 
         resource_updates.insert(
@@ -868,11 +871,13 @@ impl NetworkEventActor {
         Self::insert_serialized_map(&mut resource_updates, &self.cache_details);
         Self::insert_serialized_map(&mut resource_updates, &self.event_timing);
 
-        // TODO: Set the correct values for these fields
+        let watcher = registry.find::<WatcherActor>(&self.watcher_name);
+        let browsing_context = registry.find::<BrowsingContextActor>(&watcher.browsing_context_actor);
+
         NetworkEventResource {
             resource_id: self.resource_id,
             resource_updates,
-            browsing_context_id: 0,
+            browsing_context_id: browsing_context.active_pipeline_id.get(),
             inner_window_id: 0,
         }
     }
