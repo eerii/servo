@@ -5,15 +5,17 @@
 //! Liberally derived from the [Firefox JS implementation](http://mxr.mozilla.org/mozilla-central/source/toolkit/devtools/server/actors/webconsole.js).
 //! Handles interaction with the remote web console on network events (HTTP requests, responses) in Servo.
 
+use std::cell::RefCell;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::engine::Engine;
 use base64::engine::general_purpose::STANDARD;
 use chrono::{Local, LocalResult, TimeZone};
-use devtools_traits::{HttpRequest as DevtoolsHttpRequest, HttpResponse as DevtoolsHttpResponse};
+use devtools_traits::{HttpRequest, HttpResponse};
 use headers::{ContentLength, ContentType, Cookie, HeaderMapExt};
 use http::{HeaderMap, Method};
 use net::cookie::ServoCookie;
+use net_traits::http_status::HttpStatus;
 use net_traits::request::{Destination as RequestDestination, RequestHeadersSize};
 use net_traits::{CookieSource, TlsSecurityInfo, TlsSecurityState};
 use serde::Serialize;
@@ -26,88 +28,143 @@ use crate::actors::long_string::LongStringActor;
 use crate::network_handler::Cause;
 use crate::protocol::ClientRequest;
 
-pub struct NetworkEventActor {
-    pub name: String,
-    pub resource_id: u64,
-    pub is_xhr: bool,
-    pub request_url: String,
-    pub request_method: Method,
-    pub request_started: SystemTime,
-    pub request_time_stamp: i64,
-    pub request_destination: RequestDestination,
-    pub request_headers_raw: Option<HeaderMap>,
-    pub request_body: Option<Vec<u8>>,
-    pub request_cookies: Option<RequestCookiesMsg>,
-    pub request_headers: Option<RequestHeadersMsg>,
-    pub response_headers_raw: Option<HeaderMap>,
-    pub response_body: Option<Vec<u8>>,
-    pub response_content: Option<ResponseContentMsg>,
-    pub response_start: Option<ResponseStartMsg>,
-    pub response_cookies: Option<ResponseCookiesMsg>,
-    pub response_headers: Option<ResponseHeadersMsg>,
-    pub cache_details: Option<CacheDetails>,
-    pub total_time: Duration,
-    pub security_state: String,
-    pub security_info: Option<TlsSecurityInfo>,
-    pub event_timing: Option<Timings>,
-    pub watcher_name: String,
+struct ParsedHeaders {
+    headers: Vec<Header>,
+    size: usize,
+    raw: String,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NetworkEventResource {
-    pub resource_id: u64,
-    pub resource_updates: Map<String, Value>,
-    pub browsing_context_id: u64,
-    pub inner_window_id: u64,
+impl ParsedHeaders {
+    fn from(map: &HeaderMap) -> Self {
+        let mut headers = vec![];
+        let mut size = 0;
+        let mut raw = "".to_owned();
+
+        for (name, value) in map {
+            let name = name.as_str().to_owned();
+            let value = value.to_str().unwrap().to_owned();
+            size += name.len() + value.len();
+            raw = raw + &name + ":" + &value + "\r\n";
+            headers.push(Header { name, value });
+        }
+
+        Self { headers, size, raw }
+    }
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NetworkEventMsg {
-    pub actor: String,
-    pub resource_id: u64,
+pub struct DevtoolsHttpRequest {
     pub url: String,
-    pub method: String,
-    pub started_date_time: String,
+    pub method: Method,
+    pub headers: HeaderMap,
+    pub body: Option<Vec<u8>>,
+    pub started: SystemTime,
     pub time_stamp: i64,
-    #[serde(rename = "isXHR")]
+    pub destination: RequestDestination,
+    pub cookies: Vec<DevtoolsCookie>,
     pub is_xhr: bool,
-    pub private: bool,
-    pub cause: Cause,
 }
 
-#[derive(Serialize)]
-pub struct ResponseCookiesMsg {
-    pub cookies: Vec<ResponseCookieObj>,
+impl From<HttpRequest> for DevtoolsHttpRequest {
+    fn from(req: HttpRequest) -> Self {
+        let cookies = req
+            .headers
+            .typed_get::<Cookie>()
+            .map(|headers| {
+                headers
+                    .iter()
+                    .map(|cookie| DevtoolsCookie {
+                        name: cookie.0.to_string(),
+                        value: cookie.1.to_string(),
+                        ..Default::default()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        Self {
+            url: req.url.to_string(),
+            method: req.method,
+            headers: req.headers,
+            body: req.body.as_ref().map(|body| body.0.clone()),
+            started: req.started_date_time,
+            time_stamp: req.time_stamp,
+            destination: req.destination,
+            cookies,
+            is_xhr: req.is_xhr,
+        }
+    }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResponseStartMsg {
-    pub http_version: String,
-    pub remote_address: String,
-    pub remote_port: u32,
-    pub status: String,
-    pub status_text: String,
-    pub headers_size: usize,
-    pub discard_response_body: bool,
+pub struct DevtoolsHttpResponse {
+    headers: Option<HeaderMap>,
+    body: Option<Vec<u8>>,
+    status: HttpStatus,
+    cookies: Vec<DevtoolsCookie>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResponseContentMsg {
-    pub mime_type: String,
-    pub content_size: u32,
-    pub transferred_size: u32,
-    pub discard_response_body: bool,
+impl DevtoolsHttpResponse {
+    fn content(&self) -> Content {
+        let mime_type = self
+            .headers
+            .as_ref()
+            .and_then(|h| h.typed_get::<ContentType>())
+            .map(|ct| ct.to_string())
+            .unwrap_or_default();
+        let transferred_size = self
+            .headers
+            .as_ref()
+            .and_then(|hdrs| hdrs.typed_get::<ContentLength>())
+            .map(|cl| cl.0);
+        let content_size = self.body.as_ref().map(|body| body.len() as u64);
+        Content {
+            mime_type,
+            content_size: content_size.unwrap_or(0) as u32,
+            transferred_size: transferred_size.unwrap_or(0) as u32,
+            discard_response_body: false,
+        }
+    }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResponseHeadersMsg {
-    pub headers: usize,
-    pub headers_size: usize,
+impl From<HttpResponse> for DevtoolsHttpResponse {
+    fn from(res: HttpResponse) -> Self {
+        let body = res.body.as_ref().map(|body| body.0.clone());
+
+        // TODO: URL
+        let cookies = (|| {
+            let headers = res.headers.as_ref()?;
+            let url = ServoUrl::parse("https://servo.org").ok()?;
+            let cookies = headers
+                .get_all("set-cookie")
+                .iter()
+                .filter_map(|cookie| {
+                    let cookie_str = std::str::from_utf8(cookie.as_bytes()).ok()?;
+                    ServoCookie::from_cookie_string(cookie_str, &url, CookieSource::HTTP)
+                })
+                .map(|servo_cookie| {
+                    let c = &servo_cookie.cookie;
+                    DevtoolsCookie {
+                        name: c.name().to_string(),
+                        value: c.value().to_string(),
+                        path: c.path().map(|p| p.to_string()),
+                        domain: c.domain().map(|d| d.to_string()),
+                        expires: c.expires().map(|dt| format!("{:?}", dt)),
+                        http_only: c.http_only(),
+                        secure: c.secure(),
+                        same_site: c.same_site().map(|s| s.to_string()),
+                    }
+                })
+                .collect::<Vec<_>>();
+            Some(cookies)
+        })()
+        .unwrap_or_default();
+
+        Self {
+            headers: res.headers,
+            body,
+            status: res.status,
+            cookies,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -118,100 +175,9 @@ pub struct CacheDetails {
 }
 
 #[derive(Serialize)]
-pub struct RequestCookiesMsg {
-    pub cookies: Vec<RequestCookieObj>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RequestHeadersMsg {
-    headers: usize,
-    headers_size: usize,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GetRequestHeadersReply {
-    from: String,
-    headers: Vec<Header>,
-    header_size: usize,
-    raw_headers: String,
-}
-
-#[derive(Serialize)]
 struct Header {
     name: String,
     value: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GetResponseHeadersReply {
-    from: String,
-    headers: Vec<Header>,
-    header_size: usize,
-    raw_headers: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GetResponseContentReply {
-    from: String,
-    content: Option<ResponseContentObj>,
-    content_discarded: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GetRequestPostDataReply {
-    from: String,
-    post_data: Option<Vec<u8>>,
-    post_data_discarded: bool,
-}
-
-#[derive(Serialize)]
-struct GetRequestCookiesReply {
-    from: String,
-    cookies: Vec<RequestCookieObj>,
-}
-
-#[derive(Serialize)]
-struct GetResponseCookiesReply {
-    from: String,
-    cookies: Vec<ResponseCookieObj>,
-}
-#[derive(Clone, Serialize)]
-pub struct ResponseCookieObj {
-    pub name: String,
-    pub value: String,
-    pub path: Option<String>,
-    pub domain: Option<String>,
-    pub expires: Option<String>,
-    #[serde(rename = "httpOnly")]
-    pub http_only: Option<bool>,
-    pub secure: Option<bool>,
-    #[serde(rename = "sameSite")]
-    pub same_site: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ResponseContentObj {
-    mime_type: String,
-    text: Value,
-    body_size: usize,
-    decoded_body_size: usize,
-    size: usize,
-    headers_size: usize,
-    transferred_size: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    encoding: Option<String>,
-}
-
-#[derive(Clone, Serialize)]
-pub struct RequestCookieObj {
-    pub name: String,
-    pub value: String,
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -226,10 +192,16 @@ pub struct Timings {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GetEventTimingsReply {
-    from: String,
-    timings: Timings,
-    total_time: u64,
+struct ResponseContent {
+    mime_type: String,
+    text: Value,
+    body_size: usize,
+    decoded_body_size: usize,
+    size: usize,
+    headers_size: usize,
+    transferred_size: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encoding: Option<String>,
 }
 
 #[derive(Serialize, Default)]
@@ -308,8 +280,8 @@ struct SecurityInfo {
     cert: SecurityCertificate,
 }
 
-impl SecurityInfo {
-    fn from_tls(info: &TlsSecurityInfo) -> Self {
+impl From<&TlsSecurityInfo> for SecurityInfo {
+    fn from(info: &TlsSecurityInfo) -> Self {
         Self {
             state: info.state.to_string(),
             weakness_reasons: info.weakness_reasons.clone(),
@@ -328,35 +300,57 @@ impl SecurityInfo {
             used_delegated_credentials: info.used_delegated_credentials,
             used_ocsp: info.used_ocsp,
             used_private_dns: info.used_private_dns,
-            certificate_chain: Vec::new(),
-            cert: SecurityCertificate {
-                subject: CertificateIdentity {
-                    name: None,
-                    common_name: None,
-                    organization: None,
-                    organizational_unit: None,
-                },
-                issuer: CertificateIdentity {
-                    name: None,
-                    common_name: None,
-                    organization: None,
-                    organizational_unit: None,
-                },
-                validity: CertificateValidity {
-                    start: None,
-                    end: None,
-                    lifetime: None,
-                    expired: false,
-                },
-                fingerprint: CertificateFingerprint {
-                    sha256: None,
-                    sha1: None,
-                },
-                serial_number: None,
-                is_built_in_root: None,
-            },
+            ..Default::default()
         }
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GetRequestHeadersReply {
+    from: String,
+    headers: Vec<Header>,
+    header_size: usize,
+    raw_headers: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GetResponseHeadersReply {
+    from: String,
+    headers: Vec<Header>,
+    header_size: usize,
+    raw_headers: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GetResponseContentReply {
+    from: String,
+    content: Option<ResponseContent>,
+    content_discarded: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GetRequestPostDataReply {
+    from: String,
+    post_data: Option<Vec<u8>>,
+    post_data_discarded: bool,
+}
+
+#[derive(Serialize)]
+struct GetCookiesReply {
+    from: String,
+    cookies: Vec<DevtoolsCookie>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GetEventTimingsReply {
+    from: String,
+    timings: Timings,
+    total_time: u64,
 }
 
 #[derive(Serialize)]
@@ -364,6 +358,35 @@ impl SecurityInfo {
 struct GetSecurityInfoReply {
     from: String,
     security_info: SecurityInfo,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkEventMsg {
+    pub actor: String,
+    pub resource_id: u64,
+    pub url: String,
+    pub method: String,
+    pub started_date_time: String,
+    pub time_stamp: i64,
+    #[serde(rename = "isXHR")]
+    pub is_xhr: bool,
+    pub private: bool,
+    pub cause: Cause,
+}
+
+#[derive(Default)]
+pub struct NetworkEventActor {
+    pub name: String,
+    pub cache_details: RefCell<Option<CacheDetails>>,
+    pub event_timing: RefCell<Option<Timings>>,
+    pub request: RefCell<Option<DevtoolsHttpRequest>>,
+    pub resource_id: u64,
+    pub response: RefCell<Option<DevtoolsHttpResponse>>,
+    pub security_info: RefCell<Option<TlsSecurityInfo>>,
+    pub security_state: RefCell<String>,
+    pub total_time: RefCell<Duration>,
+    pub watcher_name: String,
 }
 
 impl Actor for NetworkEventActor {
@@ -381,112 +404,83 @@ impl Actor for NetworkEventActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getRequestHeaders" => {
-                let mut headers = Vec::new();
-                let mut raw_headers_string = "".to_owned();
-                let mut headers_size = 0;
-                if let Some(ref headers_map) = self.request_headers_raw {
-                    for (name, value) in headers_map.iter() {
-                        let value = &value.to_str().unwrap().to_string();
-                        raw_headers_string =
-                            raw_headers_string + name.as_str() + ":" + value + "\r\n";
-                        headers_size += name.as_str().len() + value.len();
-                        headers.push(Header {
-                            name: name.as_str().to_owned(),
-                            value: value.to_owned(),
-                        });
-                    }
-                }
+                let req = self.request.borrow();
+                let req = req.as_ref().ok_or(ActorError::Internal)?;
+                let headers = ParsedHeaders::from(&req.headers);
 
                 let msg = GetRequestHeadersReply {
                     from: self.name(),
-                    headers,
-                    header_size: headers_size,
-                    raw_headers: raw_headers_string,
+                    headers: headers.headers,
+                    header_size: headers.size,
+                    raw_headers: headers.raw,
                 };
                 request.reply_final(&msg)?
             },
+
             "getRequestCookies" => {
-                let cookies = self
-                    .request_cookies
-                    .as_ref()
-                    .map(|msg| msg.cookies.clone())
-                    .unwrap_or_default();
-                let msg = GetRequestCookiesReply {
+                let req = self.request.borrow();
+                let req = req.as_ref().ok_or(ActorError::Internal)?;
+
+                let msg = GetCookiesReply {
                     from: self.name(),
-                    cookies,
+                    cookies: req.cookies.clone(),
                 };
+
                 request.reply_final(&msg)?
             },
+
             "getRequestPostData" => {
+                let req = self.request.borrow();
+                let req = req.as_ref().ok_or(ActorError::Internal)?;
+
                 let msg = GetRequestPostDataReply {
                     from: self.name(),
-                    post_data: self.request_body.clone(),
-                    post_data_discarded: self.request_body.is_none(),
+                    post_data: req.body.clone(),
+                    post_data_discarded: req.body.is_none(),
                 };
                 request.reply_final(&msg)?
             },
+
             "getResponseHeaders" => {
-                if let Some(ref response_headers) = self.response_headers_raw {
-                    let mut headers = vec![];
-                    let mut raw_headers_string = "".to_owned();
-                    let mut headers_size = 0;
-                    for (name, value) in response_headers.iter() {
-                        headers.push(Header {
-                            name: name.as_str().to_owned(),
-                            value: value.to_str().unwrap().to_owned(),
-                        });
-                        headers_size += name.as_str().len() + value.len();
-                        raw_headers_string.push_str(name.as_str());
-                        raw_headers_string.push(':');
-                        raw_headers_string.push_str(value.to_str().unwrap());
-                        raw_headers_string.push_str("\r\n");
-                    }
-                    let msg = GetResponseHeadersReply {
-                        from: self.name(),
-                        headers,
-                        header_size: headers_size,
-                        raw_headers: raw_headers_string,
-                    };
-                    request.reply_final(&msg)?;
-                } else {
-                    // FIXME: what happens when there are no response headers?
-                    return Err(ActorError::Internal);
-                }
-            },
-            "getResponseCookies" => {
-                let cookies = self
-                    .response_cookies
-                    .as_ref()
-                    .map(|msg| msg.cookies.clone())
-                    .unwrap_or_default();
-                let msg = GetResponseCookiesReply {
+                let res = self.response.borrow();
+                let res = res.as_ref().ok_or(ActorError::Internal)?;
+                // FIXME: what happens when there are no response headers?
+                let headers =
+                    ParsedHeaders::from(res.headers.as_ref().ok_or(ActorError::Internal)?);
+
+                let msg = GetResponseHeadersReply {
                     from: self.name(),
-                    cookies,
+                    headers: headers.headers,
+                    header_size: headers.size,
+                    raw_headers: headers.raw,
+                };
+                request.reply_final(&msg)?;
+            },
+
+            "getResponseCookies" => {
+                let res = self.response.borrow();
+                let res = res.as_ref().ok_or(ActorError::Internal)?;
+
+                let msg = GetCookiesReply {
+                    from: self.name(),
+                    cookies: res.cookies.clone(),
                 };
                 request.reply_final(&msg)?
             },
+
             "getResponseContent" => {
-                let content_obj = self.response_body.as_ref().map(|body| {
-                    let mime_type = self
-                        .response_content
-                        .as_ref()
-                        .map(|c| c.mime_type.clone())
-                        .unwrap_or_default();
-                    let headers_size = self
-                        .response_headers
-                        .as_ref()
-                        .map(|h| h.headers_size)
-                        .unwrap_or(0);
-                    let transferred_size = self
-                        .response_content
-                        .as_ref()
-                        .map(|c| c.transferred_size as usize)
-                        .unwrap_or(0);
+                let res = self.response.borrow();
+                let res = res.as_ref().ok_or(ActorError::Internal)?;
+                let content = res.content();
+                let headers =
+                    ParsedHeaders::from(res.headers.as_ref().ok_or(ActorError::Internal)?);
+
+                let content_obj = res.body.as_ref().map(|body| {
                     let body_size = body.len();
                     let decoded_body_size = body.len();
                     let size = body.len();
 
-                    if Self::is_text_mime(&mime_type) {
+                    if Self::is_text_mime(&content.mime_type) {
                         let full_str = String::from_utf8_lossy(body).to_string();
 
                         // Queue a LongStringActor for this body
@@ -494,26 +488,26 @@ impl Actor for NetworkEventActor {
                         let long_string_obj = long_string_actor.long_string_obj();
                         registry.register_later(long_string_actor);
 
-                        ResponseContentObj {
-                            mime_type,
+                        ResponseContent {
+                            mime_type: content.mime_type,
                             text: serde_json::to_value(long_string_obj).unwrap(),
                             body_size,
                             decoded_body_size,
                             size,
-                            headers_size,
-                            transferred_size,
+                            headers_size: headers.size,
+                            transferred_size: content.transferred_size as usize,
                             encoding: None,
                         }
                     } else {
                         let b64 = STANDARD.encode(body);
-                        ResponseContentObj {
-                            mime_type,
+                        ResponseContent {
+                            mime_type: content.mime_type,
                             text: serde_json::to_value(b64).unwrap(),
                             body_size,
                             decoded_body_size,
                             size,
-                            headers_size,
-                            transferred_size,
+                            headers_size: headers.size,
+                            transferred_size: content.transferred_size as usize,
                             encoding: Some("base64".to_string()),
                         }
                     }
@@ -521,13 +515,14 @@ impl Actor for NetworkEventActor {
                 let msg = GetResponseContentReply {
                     from: self.name(),
                     content: content_obj,
-                    content_discarded: self.response_body.is_none(),
+                    content_discarded: res.body.is_none(),
                 };
                 request.reply_final(&msg)?
             },
+
             "getEventTimings" => {
                 // TODO: This is a fake timings msg
-                let timings_obj = self.event_timing.clone().unwrap_or_default();
+                let timings_obj = self.event_timing.borrow().clone().unwrap_or_default();
                 // Might use the one on self
                 let total = timings_obj.connect + timings_obj.send;
                 // TODO: Send the correct values for all these fields.
@@ -538,20 +533,21 @@ impl Actor for NetworkEventActor {
                 };
                 request.reply_final(&msg)?
             },
+
             "getSecurityInfo" => {
+                let security_info = self.security_info.borrow();
                 let msg = GetSecurityInfoReply {
                     from: self.name(),
-                    security_info: self
-                        .security_info
-                        .as_ref()
-                        .map(SecurityInfo::from_tls)
-                        .unwrap_or_else(|| SecurityInfo {
-                            state: self.security_state.clone(),
+                    security_info: security_info.as_ref().map(From::from).unwrap_or_else(|| {
+                        SecurityInfo {
+                            state: self.security_state.borrow().clone(),
                             ..Default::default()
-                        }),
+                        }
+                    }),
                 };
                 request.reply_final(&msg)?
             },
+
             _ => return Err(ActorError::UnrecognizedPacketType),
         };
         Ok(())
@@ -563,205 +559,64 @@ impl NetworkEventActor {
         NetworkEventActor {
             name,
             resource_id,
-            is_xhr: false,
-            request_url: String::new(),
-            request_method: Method::GET,
-            request_started: SystemTime::now(),
-            request_time_stamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64,
-            request_destination: RequestDestination::None,
-            request_headers_raw: None,
-            request_body: None,
-            request_cookies: None,
-            request_headers: None,
-            response_headers_raw: None,
-            response_body: None,
-            response_content: None,
-            response_start: None,
-            response_cookies: None,
-            response_headers: None,
-            cache_details: None,
-            total_time: Duration::ZERO,
-            security_state: "insecure".to_owned(),
-            security_info: None,
-            event_timing: None,
+            security_state: RefCell::from("insecure".to_owned()),
             watcher_name,
+            ..Default::default()
         }
     }
 
-    pub fn add_request(&mut self, request: DevtoolsHttpRequest) {
-        self.is_xhr = request.is_xhr;
-        self.request_cookies = Self::request_cookies(&request);
-        self.request_headers = Some(Self::request_headers(&request));
-        self.total_time = Self::total_time(&request);
-        self.event_timing = Some(Self::event_timing(&request));
-        self.request_url = request.url.to_string();
-        self.request_method = request.method;
-        self.request_started = request.started_date_time;
-        self.request_time_stamp = request.time_stamp;
-        self.request_destination = request.destination;
-        self.request_body = request.body.as_ref().map(|b| b.0.clone());
-        self.request_headers_raw = Some(request.headers.clone());
-    }
-
-    pub fn add_response(&mut self, response: DevtoolsHttpResponse) {
-        self.response_headers = Some(Self::response_headers(&response));
-        self.response_cookies = ServoUrl::parse(&self.request_url)
-            .ok()
-            .as_ref()
-            .and_then(|url| Self::response_cookies(&response, url));
-        self.response_start = Some(Self::response_start(&response));
-        if let Some(response_content) = Self::response_content(self, &response) {
-            self.response_content = Some(response_content);
-        }
-        self.response_headers_raw = response.headers.clone();
-        self.cache_details = Some(Self::cache_details(&response));
-    }
-
-    pub fn update_security_info(&mut self, security_info: Option<TlsSecurityInfo>) {
-        self.security_state = security_info
-            .as_ref()
-            .map(|info| info.state)
-            .unwrap_or(TlsSecurityState::Insecure)
-            .to_string();
-        self.security_info = security_info;
-    }
-
-    pub fn response_start(response: &DevtoolsHttpResponse) -> ResponseStartMsg {
-        // TODO: Send the correct values for all these fields.
-        let h_size = response.headers.as_ref().map(|h| h.len()).unwrap_or(0);
-        let status = &response.status;
-
-        // TODO: Send the correct values for remoteAddress and remotePort and http_version
-        ResponseStartMsg {
-            http_version: "HTTP/1.1".to_owned(),
-            remote_address: "63.245.217.43".to_owned(),
-            remote_port: 443,
-            status: status.code().to_string(),
-            status_text: String::from_utf8_lossy(status.message()).to_string(),
-            headers_size: h_size,
-            discard_response_body: false,
-        }
-    }
-
-    pub fn response_content(
-        &mut self,
-        response: &DevtoolsHttpResponse,
-    ) -> Option<ResponseContentMsg> {
-        let body = response.body.as_ref()?;
-        self.response_body = Some(body.0.clone());
-
-        let mime_type = response
-            .headers
-            .as_ref()
-            .and_then(|h| h.typed_get::<ContentType>())
-            .map(|ct| ct.to_string())
-            .unwrap_or_default();
-
-        let transferred_size = response
-            .headers
-            .as_ref()
-            .and_then(|hdrs| hdrs.typed_get::<ContentLength>())
-            .map(|cl| cl.0);
-
-        let content_size = response.body.as_ref().map(|body| body.len() as u64);
-
-        Some(ResponseContentMsg {
-            mime_type,
-            content_size: content_size.unwrap_or(0) as u32,
-            transferred_size: transferred_size.unwrap_or(0) as u32,
-            discard_response_body: false,
-        })
-    }
-
-    pub fn response_cookies(
-        response: &DevtoolsHttpResponse,
-        url: &ServoUrl,
-    ) -> Option<ResponseCookiesMsg> {
-        let headers = response.headers.as_ref()?;
-        let cookies = headers
-            .get_all("set-cookie")
-            .iter()
-            .filter_map(|cookie| {
-                let cookie_str = std::str::from_utf8(cookie.as_bytes()).ok()?;
-                ServoCookie::from_cookie_string(cookie_str, url, CookieSource::HTTP)
-            })
-            .map(|servo_cookie| {
-                let c = &servo_cookie.cookie;
-                ResponseCookieObj {
-                    name: c.name().to_string(),
-                    value: c.value().to_string(),
-                    path: c.path().map(|p| p.to_string()),
-                    domain: c.domain().map(|d| d.to_string()),
-                    expires: c.expires().map(|dt| format!("{:?}", dt)),
-                    http_only: c.http_only(),
-                    secure: c.secure(),
-                    same_site: c.same_site().map(|s| s.to_string()),
-                }
-            })
-            .collect::<Vec<_>>();
-        Some(ResponseCookiesMsg { cookies })
-    }
-
-    pub fn response_headers(response: &DevtoolsHttpResponse) -> ResponseHeadersMsg {
-        let mut header_size = 0;
-        let mut headers_byte_count = 0;
-        if let Some(ref headers) = response.headers {
-            for (name, value) in headers.iter() {
-                header_size += 1;
-                headers_byte_count += name.as_str().len() + value.len();
-            }
-        }
-        ResponseHeadersMsg {
-            headers: header_size,
-            headers_size: headers_byte_count,
-        }
-    }
-
-    pub fn request_headers(request: &DevtoolsHttpRequest) -> RequestHeadersMsg {
-        RequestHeadersMsg {
-            headers: request.headers.len(),
-            headers_size: request.headers.total_size(),
-        }
-    }
-
-    pub fn request_cookies(request: &DevtoolsHttpRequest) -> Option<RequestCookiesMsg> {
-        let header_value = request.headers.typed_get::<Cookie>()?;
-        let cookies = header_value
-            .iter()
-            .map(|cookie| RequestCookieObj {
-                name: cookie.0.to_string(),
-                value: cookie.1.to_string(),
-            })
-            .collect::<Vec<_>>();
-        Some(RequestCookiesMsg { cookies })
-    }
-
-    pub fn cache_details(response: &DevtoolsHttpResponse) -> CacheDetails {
-        CacheDetails {
-            from_cache: response.from_cache,
-            from_service_worker: false,
-        }
-    }
-
-    pub fn total_time(request: &DevtoolsHttpRequest) -> Duration {
-        request.connect_time + request.send_time
-    }
-
-    pub fn event_timing(request: &DevtoolsHttpRequest) -> Timings {
-        Timings {
-            blocked: 0,
-            dns: 0,
+    pub fn set_request(&self, request: HttpRequest) {
+        self.total_time
+            .replace(request.connect_time + request.send_time);
+        self.event_timing.replace(Some(Timings {
             connect: request.connect_time.as_millis() as u64,
             send: request.send_time.as_millis() as u64,
-            wait: 0,
-            receive: 0,
+            ..Default::default()
+        }));
+        self.request.replace(Some(request.into()));
+    }
+
+    pub fn set_response(&self, response: HttpResponse) {
+        self.cache_details.replace(Some(CacheDetails {
+            from_cache: response.from_cache,
+            from_service_worker: false,
+        }));
+        self.response.replace(Some(response.into()));
+    }
+
+    pub fn set_security_info(&self, security_info: Option<TlsSecurityInfo>) {
+        self.security_state.replace(
+            security_info
+                .as_ref()
+                .map(|info| info.state)
+                .unwrap_or(TlsSecurityState::Insecure)
+                .to_string(),
+        );
+        self.security_info.replace(security_info);
+    }
+
+    pub fn resource_updates(&self) -> NetworkEventResource {
+        let req = self.request.borrow();
+        let res = self.response.borrow();
+        // TODO: Review all of this fields, if they should be here
+        // TODO: Merge header number and size
+        // TODO: Set the correct values for these fields
+        NetworkEventResource {
+            resource_id: self.resource_id,
+            resource_updates: ResourceUpdates {
+                request: req.as_ref().map(|r| r.into()),
+                response: res.as_ref().map(|r| r.into()),
+                total_time: self.total_time.borrow().as_secs_f64(),
+                security_state: self.security_state.borrow().clone(),
+                security_info_available: self.security_info.borrow().is_some(),
+                event_timings_available: self.event_timing.borrow().is_some(),
+            },
+            browsing_context_id: 0,
+            inner_window_id: 0,
         }
     }
 
-    pub fn is_text_mime(mime: &str) -> bool {
+    fn is_text_mime(mime: &str) -> bool {
         let lower = mime.to_ascii_lowercase();
         lower.starts_with("text/") ||
             lower.contains("json") ||
@@ -770,90 +625,15 @@ impl NetworkEventActor {
             lower.contains("csv") ||
             lower.contains("html")
     }
-
-    fn insert_serialized_map<T: Serialize>(map: &mut Map<String, Value>, obj: &Option<T>) {
-        if let Some(value) = obj {
-            if let Ok(Value::Object(serialized)) = serde_json::to_value(value) {
-                for (key, val) in serialized {
-                    map.insert(key, val);
-                }
-            }
-        }
-    }
-
-    pub fn resource_updates(&self) -> NetworkEventResource {
-        let mut resource_updates = Map::new();
-
-        resource_updates.insert(
-            "requestCookiesAvailable".to_owned(),
-            Value::Bool(self.request_cookies.is_some()),
-        );
-
-        resource_updates.insert(
-            "requestHeadersAvailable".to_owned(),
-            Value::Bool(self.request_headers.is_some()),
-        );
-
-        resource_updates.insert(
-            "responseHeadersAvailable".to_owned(),
-            Value::Bool(self.response_headers.is_some()),
-        );
-        resource_updates.insert(
-            "responseCookiesAvailable".to_owned(),
-            Value::Bool(self.response_cookies.is_some()),
-        );
-        resource_updates.insert(
-            "responseStartAvailable".to_owned(),
-            Value::Bool(self.response_start.is_some()),
-        );
-        resource_updates.insert(
-            "responseContentAvailable".to_owned(),
-            Value::Bool(self.response_content.is_some()),
-        );
-
-        resource_updates.insert(
-            "totalTime".to_string(),
-            Value::from(self.total_time.as_secs_f64()),
-        );
-
-        resource_updates.insert(
-            "securityState".to_string(),
-            Value::String(self.security_state.clone()),
-        );
-        resource_updates.insert(
-            "securityInfoAvailable".to_string(),
-            Value::Bool(self.security_info.is_some()),
-        );
-        resource_updates.insert(
-            "eventTimingsAvailable".to_owned(),
-            Value::Bool(self.event_timing.is_some()),
-        );
-
-        Self::insert_serialized_map(&mut resource_updates, &self.response_content);
-        Self::insert_serialized_map(&mut resource_updates, &self.response_headers);
-        Self::insert_serialized_map(&mut resource_updates, &self.response_cookies);
-        Self::insert_serialized_map(&mut resource_updates, &self.request_headers);
-        Self::insert_serialized_map(&mut resource_updates, &self.request_cookies);
-        Self::insert_serialized_map(&mut resource_updates, &self.response_start);
-        Self::insert_serialized_map(&mut resource_updates, &self.cache_details);
-        Self::insert_serialized_map(&mut resource_updates, &self.event_timing);
-
-        // TODO: Set the correct values for these fields
-        NetworkEventResource {
-            resource_id: self.resource_id,
-            resource_updates,
-            browsing_context_id: 0,
-            inner_window_id: 0,
-        }
-    }
 }
 
 impl ActorEncode<NetworkEventMsg> for NetworkEventActor {
     fn encode(&self, _: &ActorRegistry) -> NetworkEventMsg {
-        // TODO: Send the correct values for startedDateTime, isXHR, private
+        let request = self.request.borrow();
+        let req = request.as_ref().expect("A request should have been set");
 
         let started_datetime_rfc3339 = match Local.timestamp_millis_opt(
-            self.request_started
+            req.started
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as i64,
@@ -863,19 +643,187 @@ impl ActorEncode<NetworkEventMsg> for NetworkEventActor {
             LocalResult::Ambiguous(date_time, _) => date_time.to_rfc3339().to_string(),
         };
 
+        // TODO: Send the correct values for startedDateTime, isXHR, private
         NetworkEventMsg {
             actor: self.name(),
             resource_id: self.resource_id,
-            url: self.request_url.clone(),
-            method: format!("{}", self.request_method),
+            url: req.url.clone(),
+            method: format!("{}", req.method),
             started_date_time: started_datetime_rfc3339,
-            time_stamp: self.request_time_stamp,
-            is_xhr: self.is_xhr,
+            time_stamp: req.time_stamp,
+            is_xhr: req.is_xhr,
             private: false,
             cause: Cause {
-                type_: self.request_destination.as_str().to_string(),
+                type_: req.destination.as_str().to_string(),
                 loading_document_uri: None, // Set if available
             },
         }
     }
+}
+
+#[derive(Clone, Default, Serialize)]
+pub struct DevtoolsCookie {
+    name: String,
+    value: String,
+    // Only for responses, not for requests
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    http_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secure: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    same_site: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct Cookies {
+    cookies: Vec<DevtoolsCookie>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Headers {
+    headers: usize,
+    headers_size: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Start {
+    http_version: String,
+    remote_address: String,
+    remote_port: u32,
+    status: String,
+    status_text: String,
+    discard_response_body: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Content {
+    mime_type: String,
+    content_size: u32,
+    transferred_size: u32,
+    discard_response_body: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevtoolsHttpRequestMsg {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    request_headers: Option<Headers>,
+    request_headers_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    request_cookies: Option<Cookies>,
+    request_cookies_available: bool,
+}
+
+impl From<&DevtoolsHttpRequest> for DevtoolsHttpRequestMsg {
+    fn from(req: &DevtoolsHttpRequest) -> Self {
+        let request_headers_available = !req.headers.is_empty();
+        let request_cookies_available = !req.cookies.is_empty();
+        Self {
+            request_headers: request_headers_available.then_some(Headers {
+                headers: req.headers.len(),
+                headers_size: req.headers.total_size(),
+            }),
+            request_headers_available,
+            request_cookies: request_cookies_available.then_some(Cookies {
+                cookies: req.cookies.clone(),
+            }),
+            request_cookies_available,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevtoolsHttpResponseMsg {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    response_headers: Option<Headers>,
+    response_headers_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    response_cookies: Option<Cookies>,
+    response_cookies_available: bool,
+    #[serde(flatten)]
+    response_start: Start,
+    response_start_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    response_content: Option<Content>,
+    response_content_available: bool,
+}
+
+impl From<&DevtoolsHttpResponse> for DevtoolsHttpResponseMsg {
+    fn from(res: &DevtoolsHttpResponse) -> Self {
+        let response_headers = res.headers.as_ref().map(|headers| {
+            let parsed = ParsedHeaders::from(headers);
+            Headers {
+                headers: parsed.headers.len(),
+                headers_size: parsed.size,
+            }
+        });
+
+        let response_cookies_available = !res.cookies.is_empty();
+
+        // TODO: Send the correct values for all these fields.
+        let response_start = Start {
+            http_version: "HTTP/1.1".to_owned(),
+            remote_address: "63.245.217.43".to_owned(),
+            remote_port: 443,
+            status: res.status.code().to_string(),
+            status_text: String::from_utf8_lossy(res.status.message()).to_string(),
+            discard_response_body: false,
+        };
+
+        let content = res.content();
+        let response_content = (content.content_size > 0).then_some(content);
+        let response_content_available = response_content.is_some();
+
+        Self {
+            response_headers,
+            response_headers_available: res.headers.is_some(),
+            response_cookies: response_cookies_available.then_some(Cookies {
+                cookies: res.cookies.clone(),
+            }),
+            response_cookies_available,
+            response_start,
+            response_start_available: true,
+            response_content,
+            response_content_available,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceUpdates {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    request: Option<DevtoolsHttpRequestMsg>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    response: Option<DevtoolsHttpResponseMsg>,
+    total_time: f64,
+    security_state: String,
+    security_info_available: bool,
+    event_timings_available: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkEventResource {
+    pub resource_id: u64,
+    pub resource_updates: ResourceUpdates,
+    pub browsing_context_id: u64,
+    pub inner_window_id: u64,
 }
