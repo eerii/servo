@@ -5,7 +5,6 @@
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::mem;
 use std::net::TcpStream;
 
 use base::id::PipelineId;
@@ -81,14 +80,14 @@ pub(crate) trait ActorEncode<T: Serialize>: Actor {
 pub struct ActorRegistry {
     actors: HashMap<String, Box<dyn Actor>>,
     new_actors: RefCell<Vec<Box<dyn Actor>>>,
-    old_actors: RefCell<Vec<String>>,
+    /// Actors that have been scheduled for removal this frame.
+    /// They will be deleted from actors at the end of `handle_messages`.
+    removed_actors: RefCell<Vec<String>>,
     script_actors: RefCell<HashMap<String, String>>,
-
     /// Lookup table for SourceActor names associated with a given PipelineId.
     source_actor_names: RefCell<HashMap<PipelineId, Vec<String>>>,
     /// Lookup table for inline source content associated with a given PipelineId.
     inline_source_content: RefCell<HashMap<PipelineId, String>>,
-
     next: Cell<u32>,
 }
 
@@ -98,7 +97,7 @@ impl ActorRegistry {
         ActorRegistry {
             actors: HashMap::new(),
             new_actors: RefCell::new(vec![]),
-            old_actors: RefCell::new(vec![]),
+            removed_actors: RefCell::new(vec![]),
             script_actors: RefCell::new(HashMap::new()),
             source_actor_names: RefCell::new(HashMap::new()),
             inline_source_content: RefCell::new(HashMap::new()),
@@ -204,24 +203,19 @@ impl ActorRegistry {
                 }
             },
         }
-        let new_actors = mem::take(&mut *self.new_actors.borrow_mut());
-        for actor in new_actors.into_iter() {
+        for actor in self.new_actors.take() {
             self.actors.insert(actor.name().to_owned(), actor);
         }
 
-        let old_actors = mem::take(&mut *self.old_actors.borrow_mut());
-        for name in old_actors {
-            self.drop_actor(name);
+        for name in self.removed_actors.take() {
+            self.actors.remove(&name);
         }
         Ok(())
     }
 
-    pub fn drop_actor(&mut self, name: String) {
-        self.actors.remove(&name);
-    }
-
-    pub fn drop_actor_later(&self, name: String) {
-        let mut actors = self.old_actors.borrow_mut();
+    /// Remove an actor from the registry at the end of the frame.
+    pub fn remove(&self, name: String) {
+        let mut actors = self.removed_actors.borrow_mut();
         actors.push(name);
     }
 
