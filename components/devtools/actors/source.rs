@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::RwLock;
 
 use base::generic_channel::{GenericSender, channel};
 use base::id::PipelineId;
@@ -40,10 +40,10 @@ pub(crate) struct SourcesReply {
 }
 
 pub(crate) struct SourceManager {
-    source_actor_names: RefCell<BTreeSet<String>>,
+    source_actor_names: RwLock<BTreeSet<String>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SourceActor {
     /// Actor name.
     pub name: String,
@@ -55,7 +55,7 @@ pub struct SourceActor {
     /// <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#black-boxing-sources>
     pub is_black_boxed: bool,
 
-    pub content: RefCell<Option<String>>,
+    pub content: RwLock<Option<String>>,
     pub content_type: Option<String>,
 
     // TODO: use it in #37667, then remove this allow
@@ -95,19 +95,21 @@ struct GetBreakpointPositionsCompressedReply {
 impl SourceManager {
     pub fn new() -> Self {
         Self {
-            source_actor_names: RefCell::new(BTreeSet::default()),
+            source_actor_names: RwLock::new(BTreeSet::default()),
         }
     }
 
     pub fn add_source(&self, actor_name: &str) {
         self.source_actor_names
-            .borrow_mut()
+            .write()
+            .unwrap()
             .insert(actor_name.to_owned());
     }
 
     pub fn source_forms(&self, actors: &ActorRegistry) -> Vec<SourceForm> {
         self.source_actor_names
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
             .map(|actor_name| actors.find::<SourceActor>(actor_name).source_form())
             .collect()
@@ -127,7 +129,7 @@ impl SourceActor {
         SourceActor {
             name,
             url,
-            content: RefCell::new(content),
+            content: RwLock::new(content),
             content_type,
             is_black_boxed: false,
             spidermonkey_id,
@@ -138,7 +140,7 @@ impl SourceActor {
 
     #[expect(clippy::too_many_arguments)]
     pub fn new_registered(
-        actors: &mut ActorRegistry,
+        actors: &ActorRegistry,
         pipeline_id: PipelineId,
         url: ServoUrl,
         content: Option<String>,
@@ -146,7 +148,7 @@ impl SourceActor {
         spidermonkey_id: u32,
         introduction_type: String,
         script_sender: GenericSender<DevtoolScriptControlMsg>,
-    ) -> &SourceActor {
+    ) -> String {
         let source_actor_name = actors.new_name("source");
 
         let source_actor = SourceActor::new(
@@ -161,7 +163,7 @@ impl SourceActor {
         actors.register(source_actor);
         actors.register_source_actor(pipeline_id, &source_actor_name);
 
-        actors.find(&source_actor_name)
+        source_actor_name
     }
 
     pub fn source_form(&self) -> SourceForm {
@@ -201,7 +203,8 @@ impl Actor for SourceActor {
                     // become available later (e.g. after a fetch)?
                     source: self
                         .content
-                        .borrow()
+                        .read()
+                        .unwrap()
                         .as_deref()
                         .unwrap_or("<!-- not available; please reload! -->")
                         .to_owned(),

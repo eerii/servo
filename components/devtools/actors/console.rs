@@ -6,9 +6,9 @@
 //! Mediates interaction between the remote web console and equivalent functionality (object
 //! inspection, JS evaluation, autocompletion) in Servo.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::TcpStream;
+use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base::generic_channel::{self, GenericSender};
@@ -134,28 +134,27 @@ pub(crate) enum Root {
 pub(crate) struct ConsoleActor {
     pub name: String,
     pub root: Root,
-    pub cached_events: RefCell<HashMap<UniqueId, Vec<CachedConsoleMessage>>>,
+    pub cached_events: RwLock<HashMap<UniqueId, Vec<CachedConsoleMessage>>>,
 }
 
 impl ConsoleActor {
-    fn script_chan<'a>(
-        &self,
-        registry: &'a ActorRegistry,
-    ) -> &'a GenericSender<DevtoolScriptControlMsg> {
+    fn script_chan(&self, registry: &ActorRegistry) -> GenericSender<DevtoolScriptControlMsg> {
         match &self.root {
-            Root::BrowsingContext(bc) => &registry.find::<BrowsingContextActor>(bc).script_chan,
-            Root::DedicatedWorker(worker) => &registry.find::<WorkerActor>(worker).script_chan,
+            Root::BrowsingContext(bc) => registry
+                .find::<BrowsingContextActor>(bc)
+                .script_chan
+                .clone(),
+            Root::DedicatedWorker(worker) => {
+                registry.find::<WorkerActor>(worker).script_chan.clone()
+            },
         }
     }
 
     fn current_unique_id(&self, registry: &ActorRegistry) -> UniqueId {
         match &self.root {
-            Root::BrowsingContext(bc) => UniqueId::Pipeline(
-                registry
-                    .find::<BrowsingContextActor>(bc)
-                    .active_pipeline_id
-                    .get(),
-            ),
+            Root::BrowsingContext(bc) => {
+                UniqueId::Pipeline(registry.find::<BrowsingContextActor>(bc).pipeline_id())
+            },
             Root::DedicatedWorker(w) => UniqueId::Worker(registry.find::<WorkerActor>(w).worker_id),
         }
     }
@@ -255,7 +254,8 @@ impl ConsoleActor {
         stream: &mut TcpStream,
     ) {
         self.cached_events
-            .borrow_mut()
+            .write()
+            .unwrap()
             .entry(id.clone())
             .or_default()
             .push(CachedConsoleMessage::PageError(page_error.clone()));
@@ -280,7 +280,8 @@ impl ConsoleActor {
     ) {
         let log_message: ConsoleLog = console_message.into();
         self.cached_events
-            .borrow_mut()
+            .write()
+            .unwrap()
             .entry(id.clone())
             .or_default()
             .push(CachedConsoleMessage::ConsoleLog(log_message.clone()));
@@ -333,7 +334,8 @@ impl Actor for ConsoleActor {
         match msg_type {
             "clearMessagesCache" => {
                 self.cached_events
-                    .borrow_mut()
+                    .write()
+                    .unwrap()
                     .remove(&self.current_unique_id(registry));
                 // FIXME: need to send a reply here!
                 return Err(ActorError::UnrecognizedPacketType);
@@ -360,7 +362,8 @@ impl Actor for ConsoleActor {
                 let mut messages = vec![];
                 for event in self
                     .cached_events
-                    .borrow()
+                    .read()
+                    .unwrap()
                     .get(&self.current_unique_id(registry))
                     .unwrap_or(&vec![])
                     .iter()
@@ -481,7 +484,8 @@ impl Actor for ConsoleActor {
 
             "clearMessagesCacheAsync" => {
                 self.cached_events
-                    .borrow_mut()
+                    .write()
+                    .unwrap()
                     .remove(&self.current_unique_id(registry));
                 let msg = EmptyReplyMsg { from: self.name() };
                 request.reply_final(&msg)?

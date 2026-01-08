@@ -4,7 +4,7 @@
 
 //! Liberally derived from the [Firefox JS implementation](http://mxr.mozilla.org/mozilla-central/source/toolkit/devtools/server/actors/inspector.js).
 
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use base::generic_channel::GenericSender;
 use base::id::PipelineId;
@@ -116,7 +116,7 @@ impl InspectorActor {
     // TODO: Passing the pipeline id here isn't correct. We should query the browsing
     // context for the active pipeline, otherwise reloading or navigating will break the inspector.
     pub fn register(
-        registry: &mut ActorRegistry,
+        registry: &ActorRegistry,
         pipeline: PipelineId,
         script_chan: GenericSender<DevtoolScriptControlMsg>,
     ) -> String {
@@ -134,7 +134,7 @@ impl InspectorActor {
 
         let walker = WalkerActor {
             name: registry.new_name("walker"),
-            mutations: RefCell::new(vec![]),
+            mutations: RwLock::new(vec![]),
             script_chan,
             pipeline,
         };

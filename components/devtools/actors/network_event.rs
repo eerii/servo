@@ -5,7 +5,7 @@
 //! Liberally derived from the [Firefox JS implementation](http://mxr.mozilla.org/mozilla-central/source/toolkit/devtools/server/actors/webconsole.js).
 //! Handles interaction with the remote web console on network events (HTTP requests, responses) in Servo.
 
-use std::cell::RefCell;
+use std::sync::RwLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use base64::engine::Engine;
@@ -32,10 +32,10 @@ use crate::protocol::ClientRequest;
 #[derive(Default)]
 pub struct NetworkEventActor {
     name: String,
-    request: RefCell<Option<NetworkEventRequest>>,
+    request: RwLock<Option<NetworkEventRequest>>,
     resource_id: u64,
-    response: RefCell<Option<NetworkEventResponse>>,
-    security_info: RefCell<TlsSecurityInfo>,
+    response: RwLock<Option<NetworkEventResponse>>,
+    security_info: RwLock<TlsSecurityInfo>,
     pub watcher: String,
 }
 
@@ -363,7 +363,7 @@ impl Actor for NetworkEventActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getRequestHeaders" => {
-                let request = self.request.borrow();
+                let request = self.request.read().unwrap();
                 let request = request.as_ref().ok_or(ActorError::Internal)?;
 
                 let headers = get_header_list(&request.request.headers);
@@ -379,7 +379,7 @@ impl Actor for NetworkEventActor {
             },
 
             "getRequestCookies" => {
-                let request = self.request.borrow();
+                let request = self.request.read().unwrap();
                 let request = request.as_ref().ok_or(ActorError::Internal)?;
 
                 let msg = GetCookiesReply {
@@ -394,7 +394,7 @@ impl Actor for NetworkEventActor {
             },
 
             "getRequestPostData" => {
-                let request = self.request.borrow();
+                let request = self.request.read().unwrap();
                 let request = request.as_ref().ok_or(ActorError::Internal)?;
 
                 let msg = GetRequestPostDataReply {
@@ -406,7 +406,7 @@ impl Actor for NetworkEventActor {
             },
 
             "getResponseHeaders" => {
-                let response = self.response.borrow();
+                let response = self.response.read().unwrap();
                 let response = response.as_ref().ok_or(ActorError::Internal)?;
 
                 let list = response
@@ -427,9 +427,9 @@ impl Actor for NetworkEventActor {
             },
 
             "getResponseCookies" => {
-                let request = self.request.borrow();
+                let request = self.request.read().unwrap();
                 let request = request.as_ref().ok_or(ActorError::Internal)?;
-                let response = self.response.borrow();
+                let response = self.response.read().unwrap();
                 let response = response.as_ref().ok_or(ActorError::Internal)?;
 
                 let msg = GetCookiesReply {
@@ -447,7 +447,7 @@ impl Actor for NetworkEventActor {
             },
 
             "getResponseContent" => {
-                let response = self.response.borrow();
+                let response = self.response.read().unwrap();
                 let response = response.as_ref().ok_or(ActorError::Internal)?;
 
                 let headers = response.response.headers.as_ref();
@@ -467,7 +467,7 @@ impl Actor for NetworkEventActor {
                         let body_string = String::from_utf8_lossy(body).to_string();
                         let long_string = LongStringActor::new(registry, body_string);
                         let value = long_string.long_string_obj();
-                        registry.register_later(long_string);
+                        registry.register(long_string);
                         (None, serde_json::to_value(value).unwrap())
                     } else {
                         let b64 = STANDARD.encode(&body.0);
@@ -498,7 +498,7 @@ impl Actor for NetworkEventActor {
             },
 
             "getEventTimings" => {
-                let request = self.request.borrow();
+                let request = self.request.read().unwrap();
                 let request = request.as_ref().ok_or(ActorError::Internal)?;
 
                 let offsets = request.offsets.clone();
@@ -516,7 +516,7 @@ impl Actor for NetworkEventActor {
             },
 
             "getSecurityInfo" => {
-                let security_info = &*self.security_info.borrow();
+                let security_info = &*self.security_info.read().unwrap();
 
                 let msg = GetSecurityInfoReply {
                     from: self.name(),
@@ -542,7 +542,7 @@ impl NetworkEventActor {
     }
 
     pub fn add_request(&self, request: HttpRequest) {
-        self.request.replace(Some(NetworkEventRequest {
+        *self.request.write().unwrap() = Some(NetworkEventRequest {
             // TODO: Fill the rest of the fields correctly for offsets and timings
             offsets: Default::default(),
             timings: Timings {
@@ -552,29 +552,28 @@ impl NetworkEventActor {
             },
             total_time: request.connect_time + request.send_time,
             request,
-        }));
+        });
     }
 
     pub fn add_response(&self, response: HttpResponse) {
         if response.body.is_none() {
             return;
         }
-        self.response.replace(Some(NetworkEventResponse {
+        *self.response.write().unwrap() = Some(NetworkEventResponse {
             cache_details: CacheDetails {
                 from_cache: response.from_cache,
                 from_service_worker: false,
             },
             response,
-        }));
+        });
     }
 
     pub fn add_security_info(&self, security_info: Option<TlsSecurityInfo>) {
-        self.security_info
-            .replace(security_info.unwrap_or_default());
+        *self.security_info.write().unwrap() = security_info.unwrap_or_default();
     }
 
     fn request_fields(&self) -> Option<RequestFields> {
-        let request = self.request.borrow();
+        let request = self.request.read().unwrap();
         let request = request.as_ref()?;
         let url = request.request.url.as_url();
         let cookies = get_cookies_from_headers(&request.request.headers, &request.request.url);
@@ -590,9 +589,9 @@ impl NetworkEventActor {
     }
 
     fn response_fields(&self) -> Option<ResponseFields> {
-        let response = self.response.borrow();
+        let response = self.response.read().unwrap();
         let response = response.as_ref()?;
-        let url = self.request.borrow().as_ref()?.request.url.clone();
+        let url = self.request.read().unwrap().as_ref()?.request.url.clone();
         let headers = response.response.headers.as_ref();
         let cookies = headers.map(|headers| get_cookies_from_headers(headers, &url));
         let status = &response.response.status;
@@ -613,7 +612,7 @@ impl NetworkEventActor {
     }
 
     fn security_fields(&self) -> SecurityFields {
-        let security_info = self.security_info.borrow();
+        let security_info = self.security_info.read().unwrap();
 
         SecurityFields {
             security_state: security_info.state.to_string(),
@@ -685,7 +684,7 @@ fn get_raw_headers(headers: &[HeaderWrapper]) -> String {
 
 impl ActorEncode<NetworkEventMsg> for NetworkEventActor {
     fn encode(&self, registry: &ActorRegistry) -> NetworkEventMsg {
-        let request = self.request.borrow();
+        let request = self.request.read().unwrap();
         let request = &request.as_ref().expect("There should be a request").request;
 
         let started_datetime_rfc3339 = match Local.timestamp_millis_opt(

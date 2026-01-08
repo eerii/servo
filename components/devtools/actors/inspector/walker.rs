@@ -4,7 +4,7 @@
 
 //! The walker actor is responsible for traversing the DOM tree in various ways to create new nodes
 
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use base::generic_channel::{self, GenericSender};
 use base::id::PipelineId;
@@ -27,7 +27,7 @@ pub struct WalkerMsg {
 
 pub struct WalkerActor {
     pub name: String,
-    pub mutations: RefCell<Vec<(AttrModification, String)>>,
+    pub mutations: RwLock<Vec<(AttrModification, String)>>,
     pub pipeline: PipelineId,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
 }
@@ -199,7 +199,7 @@ impl Actor for WalkerActor {
                 // TODO: Create actual layout inspector actor
                 let layout = LayoutInspectorActor::new(registry.new_name("layout"));
                 let actor = layout.encode(registry);
-                registry.register_later(layout);
+                registry.register(layout);
 
                 let msg = GetLayoutInspectorReply {
                     from: self.name(),
@@ -212,7 +212,8 @@ impl Actor for WalkerActor {
                     from: self.name(),
                     mutations: self
                         .mutations
-                        .borrow_mut()
+                        .write()
+                        .unwrap()
                         .drain(..)
                         .map(|(mutation, target)| MutationMsg {
                             attribute_name: mutation.attribute_name,
@@ -287,7 +288,7 @@ impl WalkerActor {
         modifications: &[AttrModification],
     ) {
         {
-            let mut mutations = self.mutations.borrow_mut();
+            let mut mutations = self.mutations.write().unwrap();
             mutations.extend(modifications.iter().cloned().map(|m| (m, target.into())));
         }
         let _ = request.write_json_packet(&NewMutationsNotification {

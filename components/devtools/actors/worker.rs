@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::TcpStream;
+use std::sync::RwLock;
 
 use base::generic_channel::GenericSender;
 use base::id::TEST_PIPELINE_ID;
@@ -35,7 +35,7 @@ pub(crate) struct WorkerActor {
     pub url: ServoUrl,
     pub type_: WorkerType,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
-    pub streams: RefCell<HashMap<StreamId, TcpStream>>,
+    pub streams: RwLock<HashMap<StreamId, TcpStream>>,
 }
 
 impl ResourceAvailable for WorkerActor {
@@ -66,7 +66,8 @@ impl Actor for WorkerActor {
                 // FIXME: we don’t send an actual reply (message without type), which seems to be a bug?
                 request.write_json_packet(&msg)?;
                 self.streams
-                    .borrow_mut()
+                    .write()
+                    .unwrap()
                     .insert(stream_id, request.try_clone_stream().unwrap());
                 // FIXME: fix messages to not require forging a pipeline for worker messages
                 self.script_chan
@@ -101,8 +102,8 @@ impl Actor for WorkerActor {
     }
 
     fn cleanup(&self, stream_id: StreamId) {
-        self.streams.borrow_mut().remove(&stream_id);
-        if self.streams.borrow().is_empty() {
+        self.streams.write().unwrap().remove(&stream_id);
+        if self.streams.read().unwrap().is_empty() {
             self.script_chan
                 .send(WantsLiveNotifications(TEST_PIPELINE_ID, false))
                 .unwrap();

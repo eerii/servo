@@ -118,7 +118,7 @@ pub fn start_server(port: u16, embedder: EmbedderProxy) -> Sender<DevtoolsContro
 pub(crate) struct StreamId(u32);
 
 struct DevtoolsInstance {
-    registry: Arc<Mutex<ActorRegistry>>,
+    registry: Arc<ActorRegistry>,
     id_map: Arc<Mutex<IdMap>>,
     browsing_contexts: FxHashMap<BrowsingContextId, String>,
     receiver: Receiver<DevtoolsControlMsg>,
@@ -160,7 +160,7 @@ impl DevtoolsInstance {
         RootActor::register(&mut registry);
 
         let instance = Self {
-            registry: Arc::new(Mutex::new(registry)),
+            registry: Arc::new(registry),
             id_map: Arc::new(Mutex::new(IdMap::default())),
             browsing_contexts: FxHashMap::default(),
             pipelines: FxHashMap::default(),
@@ -206,9 +206,8 @@ impl DevtoolsInstance {
 
                     // Inform every browsing context of the new stream
                     for name in self.browsing_contexts.values() {
-                        let actors = actors.lock().unwrap();
                         let browsing_context = actors.find::<BrowsingContextActor>(name);
-                        let mut streams = browsing_context.streams.borrow_mut();
+                        let mut streams = browsing_context.streams.write().unwrap();
                         streams.insert(id, stream.try_clone().unwrap());
                     }
 
@@ -292,22 +291,20 @@ impl DevtoolsInstance {
     }
 
     fn handle_framerate_tick(&self, actor_name: String, tick: f64) {
-        let actors = self.registry.lock().unwrap();
-        let framerate_actor = actors.find::<FramerateActor>(&actor_name);
+        let framerate_actor = self.registry.find::<FramerateActor>(&actor_name);
         framerate_actor.add_tick(tick);
     }
 
     fn handle_navigate(&self, browsing_context_id: BrowsingContextId, state: NavigationState) {
         let actor_name = self.browsing_contexts.get(&browsing_context_id).unwrap();
-        let actors = self.registry.lock().unwrap();
-        let actor = actors.find::<BrowsingContextActor>(actor_name);
+        let actor = self.registry.find::<BrowsingContextActor>(actor_name);
         let mut id_map = self.id_map.lock().expect("Mutex poisoned");
         if let NavigationState::Start(url) = &state {
             let mut connections = Vec::<TcpStream>::new();
             for stream in self.connections.values() {
                 connections.push(stream.try_clone().unwrap());
             }
-            let watcher_actor = actors.find::<WatcherActor>(&actor.watcher);
+            let watcher_actor = self.registry.find::<WatcherActor>(&actor.watcher);
             watcher_actor.emit_will_navigate(
                 browsing_context_id,
                 url.clone(),
@@ -327,25 +324,23 @@ impl DevtoolsInstance {
         script_sender: GenericSender<DevtoolScriptControlMsg>,
         page_info: DevtoolsPageInfo,
     ) {
-        let mut actors = self.registry.lock().unwrap();
-
         let (browsing_context_id, pipeline_id, worker_id, webview_id) = ids;
         let id_map = &mut self.id_map.lock().expect("Mutex poisoned");
         let devtools_browser_id = id_map.browser_id(webview_id);
         let devtools_browsing_context_id = id_map.browsing_context_id(browsing_context_id);
         let devtools_outer_window_id = id_map.outer_window_id(pipeline_id);
 
-        let console_name = actors.new_name("console");
+        let console_name = self.registry.new_name("console");
 
         let parent_actor = if let Some(id) = worker_id {
             assert!(self.pipelines.contains_key(&pipeline_id));
             assert!(self.browsing_contexts.contains_key(&browsing_context_id));
 
-            let thread = ThreadActor::new(actors.new_name("thread"));
+            let thread = ThreadActor::new(self.registry.new_name("thread"));
             let thread_name = thread.name();
-            actors.register(thread);
+            self.registry.register(thread);
 
-            let worker_name = actors.new_name("worker");
+            let worker_name = self.registry.new_name("worker");
             let worker = WorkerActor {
                 name: worker_name.clone(),
                 console: console_name.clone(),
@@ -356,11 +351,11 @@ impl DevtoolsInstance {
                 script_chan: script_sender,
                 streams: Default::default(),
             };
-            let root = actors.find::<RootActor>("root");
-            root.tabs.borrow_mut().push(worker.name.clone());
+            let root = self.registry.find::<RootActor>("root");
+            root.tabs.write().unwrap().push(worker.name.clone());
 
             self.actor_workers.insert(id, worker_name.clone());
-            actors.register(worker);
+            self.registry.register(worker);
 
             Root::DedicatedWorker(worker_name)
         } else {
@@ -377,16 +372,16 @@ impl DevtoolsInstance {
                         pipeline_id,
                         devtools_outer_window_id,
                         script_sender,
-                        &mut actors,
+                        &self.registry,
                     );
                     let name = browsing_context_actor.name();
-                    actors.register(browsing_context_actor);
+                    self.registry.register(browsing_context_actor);
                     name
                 });
 
             // Add existing streams to the new browsing context
-            let browsing_context = actors.find::<BrowsingContextActor>(name);
-            let mut streams = browsing_context.streams.borrow_mut();
+            let browsing_context = self.registry.find::<BrowsingContextActor>(name);
+            let mut streams = browsing_context.streams.write().unwrap();
             for (id, stream) in &self.connections {
                 streams.insert(*id, stream.try_clone().unwrap());
             }
@@ -400,7 +395,7 @@ impl DevtoolsInstance {
             root: parent_actor,
         };
 
-        actors.register(console);
+        self.registry.register(console);
     }
 
     fn handle_title_changed(&self, pipeline_id: PipelineId, title: String) {
@@ -412,8 +407,7 @@ impl DevtoolsInstance {
             Some(name) => name,
             None => return,
         };
-        let actors = self.registry.lock().unwrap();
-        let browsing_context = actors.find::<BrowsingContextActor>(name);
+        let browsing_context = self.registry.find::<BrowsingContextActor>(name);
         browsing_context.title_changed(pipeline_id, title);
     }
 
@@ -427,11 +421,10 @@ impl DevtoolsInstance {
             Some(name) => name,
             None => return,
         };
-        let actors = self.registry.lock().unwrap();
-        let console_actor = actors.find::<ConsoleActor>(&console_actor_name);
+        let console_actor = self.registry.find::<ConsoleActor>(&console_actor_name);
         let id = worker_id.map_or(UniqueId::Pipeline(pipeline_id), UniqueId::Worker);
         for stream in self.connections.values_mut() {
-            console_actor.handle_page_error(page_error.clone(), id.clone(), &actors, stream);
+            console_actor.handle_page_error(page_error.clone(), id.clone(), &self.registry, stream);
         }
     }
 
@@ -445,11 +438,15 @@ impl DevtoolsInstance {
             Some(name) => name,
             None => return,
         };
-        let actors = self.registry.lock().unwrap();
-        let console_actor = actors.find::<ConsoleActor>(&console_actor_name);
+        let console_actor = self.registry.find::<ConsoleActor>(&console_actor_name);
         let id = worker_id.map_or(UniqueId::Pipeline(pipeline_id), UniqueId::Worker);
         for stream in self.connections.values_mut() {
-            console_actor.handle_console_api(console_message.clone(), id.clone(), &actors, stream);
+            console_actor.handle_console_api(
+                console_message.clone(),
+                id.clone(),
+                &self.registry,
+                stream,
+            );
         }
     }
 
@@ -458,11 +455,10 @@ impl DevtoolsInstance {
             Some(name) => name,
             None => return,
         };
-        let actors = self.registry.lock().unwrap();
-        let console_actor = actors.find::<ConsoleActor>(&console_actor_name);
+        let console_actor = self.registry.find::<ConsoleActor>(&console_actor_name);
         let id = worker_id.map_or(UniqueId::Pipeline(pipeline_id), UniqueId::Worker);
         for stream in self.connections.values_mut() {
-            console_actor.send_clear_message(id.clone(), &actors, stream);
+            console_actor.send_clear_message(id.clone(), &self.registry, stream);
         }
     }
 
@@ -471,15 +467,19 @@ impl DevtoolsInstance {
         pipeline_id: PipelineId,
         worker_id: Option<WorkerId>,
     ) -> Option<String> {
-        let actors = self.registry.lock().unwrap();
         if let Some(worker_id) = worker_id {
             let actor_name = self.actor_workers.get(&worker_id)?;
-            Some(actors.find::<WorkerActor>(actor_name).console.clone())
+            Some(
+                self.registry
+                    .find::<WorkerActor>(actor_name)
+                    .console
+                    .clone(),
+            )
         } else {
             let id = self.pipelines.get(&pipeline_id)?;
             let actor_name = self.browsing_contexts.get(id)?;
             Some(
-                actors
+                self.registry
                     .find::<BrowsingContextActor>(actor_name)
                     .console
                     .clone(),
@@ -506,8 +506,6 @@ impl DevtoolsInstance {
         };
         let watcher_name = self
             .registry
-            .lock()
-            .unwrap()
             .find::<BrowsingContextActor>(browsing_context_actor_name)
             .watcher
             .clone();
@@ -518,7 +516,7 @@ impl DevtoolsInstance {
         };
 
         handle_network_event(
-            Arc::clone(&self.registry),
+            self.registry.clone(),
             netevent_actor_name,
             connections,
             network_event,
@@ -527,15 +525,14 @@ impl DevtoolsInstance {
 
     /// Create a new NetworkEventActor for a given request ID and watcher name.
     fn create_network_event_actor(&mut self, request_id: String, watcher_name: String) -> String {
-        let mut actors = self.registry.lock().unwrap();
         let resource_id = self.next_resource_id;
         self.next_resource_id += 1;
 
-        let actor_name = actors.new_name("netevent");
+        let actor_name = self.registry.new_name("netevent");
         let actor = NetworkEventActor::new(actor_name.clone(), resource_id, watcher_name);
 
         self.actor_requests.insert(request_id, actor_name.clone());
-        actors.register(actor);
+        self.registry.register(actor);
 
         actor_name
     }
@@ -546,13 +543,11 @@ impl DevtoolsInstance {
         pipeline_id: PipelineId,
         source_info: SourceInfo,
     ) {
-        let mut actors = self.registry.lock().unwrap();
-
         let source_content = source_info
             .content
-            .or_else(|| actors.inline_source_content(pipeline_id));
-        let source_actor = SourceActor::new_registered(
-            &mut actors,
+            .or_else(|| self.registry.inline_source_content(pipeline_id));
+        let source_actor_name = SourceActor::new_registered(
+            &self.registry,
             pipeline_id,
             source_info.url,
             source_content,
@@ -561,20 +556,26 @@ impl DevtoolsInstance {
             source_info.introduction_type,
             script_sender,
         );
-        let source_actor_name = source_actor.name.clone();
-        let source_form = source_actor.source_form();
+        let source_form = self
+            .registry
+            .find::<SourceActor>(&source_actor_name)
+            .source_form();
 
         if let Some(worker_id) = source_info.worker_id {
             let Some(worker_actor_name) = self.actor_workers.get(&worker_id) else {
                 return;
             };
 
-            let thread_actor_name = actors.find::<WorkerActor>(worker_actor_name).thread.clone();
-            let thread_actor = actors.find::<ThreadActor>(&thread_actor_name);
+            let thread_actor_name = self
+                .registry
+                .find::<WorkerActor>(worker_actor_name)
+                .thread
+                .clone();
+            let thread_actor = self.registry.find::<ThreadActor>(&thread_actor_name);
 
             thread_actor.source_manager.add_source(&source_actor_name);
 
-            let worker_actor = actors.find::<WorkerActor>(worker_actor_name);
+            let worker_actor = self.registry.find::<WorkerActor>(worker_actor_name);
 
             for stream in self.connections.values_mut() {
                 worker_actor.resource_array(
@@ -593,15 +594,15 @@ impl DevtoolsInstance {
             };
 
             let thread_actor_name = {
-                let browsing_context = actors.find::<BrowsingContextActor>(actor_name);
+                let browsing_context = self.registry.find::<BrowsingContextActor>(actor_name);
                 browsing_context.thread.clone()
             };
 
-            let thread_actor = actors.find::<ThreadActor>(&thread_actor_name);
+            let thread_actor = self.registry.find::<ThreadActor>(&thread_actor_name);
             thread_actor.source_manager.add_source(&source_actor_name);
 
             // Notify browsing context about the new source
-            let browsing_context = actors.find::<BrowsingContextActor>(actor_name);
+            let browsing_context = self.registry.find::<BrowsingContextActor>(actor_name);
 
             for stream in self.connections.values_mut() {
                 browsing_context.resource_array(
@@ -615,11 +616,9 @@ impl DevtoolsInstance {
     }
 
     fn handle_update_source_content(&mut self, pipeline_id: PipelineId, source_content: String) {
-        let mut actors = self.registry.lock().unwrap();
-
-        for actor_name in actors.source_actor_names_for_pipeline(pipeline_id) {
-            let source_actor = actors.find::<SourceActor>(&actor_name);
-            let mut content = source_actor.content.borrow_mut();
+        for actor_name in self.registry.source_actor_names_for_pipeline(pipeline_id) {
+            let source_actor = self.registry.find::<SourceActor>(&actor_name);
+            let mut content = source_actor.content.write().unwrap();
             if content.is_none() {
                 *content = Some(source_content.clone());
             }
@@ -627,7 +626,8 @@ impl DevtoolsInstance {
 
         // Store the source content separately for any future source actors that get created *after* we finish parsing
         // the HTML. For example, adding an `import` to an inline module script can delay it until after parsing.
-        actors.set_inline_source_content(pipeline_id, source_content);
+        self.registry
+            .set_inline_source_content(pipeline_id, source_content);
     }
 }
 
@@ -660,12 +660,10 @@ fn allow_devtools_client(stream: &mut TcpStream, embedder: &EmbedderProxy, token
 }
 
 /// Process the input from a single devtools client until EOF.
-fn handle_client(actors: Arc<Mutex<ActorRegistry>>, mut stream: TcpStream, stream_id: StreamId) {
+fn handle_client(actors: Arc<ActorRegistry>, mut stream: TcpStream, stream_id: StreamId) {
     log::info!("Connection established to {}", stream.peer_addr().unwrap());
-    let msg = {
-        let actors = actors.lock().unwrap();
-        actors.encode::<RootActor, _>("root")
-    };
+    let msg = actors.encode::<RootActor, _>("root");
+
     if let Err(error) = stream.write_json_packet(&msg) {
         warn!("Failed to send initial packet from root actor: {error:?}");
         return;
@@ -674,11 +672,9 @@ fn handle_client(actors: Arc<Mutex<ActorRegistry>>, mut stream: TcpStream, strea
     loop {
         match stream.read_json_packet() {
             Ok(Some(json_packet)) => {
-                if let Err(()) = actors.lock().unwrap().handle_message(
-                    json_packet.as_object().unwrap(),
-                    &mut stream,
-                    stream_id,
-                ) {
+                if let Err(()) =
+                    actors.handle_message(json_packet.as_object().unwrap(), &mut stream, stream_id)
+                {
                     log::error!("Devtools actor stopped responding");
                     let _ = stream.shutdown(Shutdown::Both);
                     break;
@@ -695,5 +691,5 @@ fn handle_client(actors: Arc<Mutex<ActorRegistry>>, mut stream: TcpStream, strea
         }
     }
 
-    actors.lock().unwrap().cleanup(stream_id);
+    actors.cleanup(stream_id);
 }

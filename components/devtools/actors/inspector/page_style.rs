@@ -179,7 +179,7 @@ impl PageStyleActor {
             once(("".into(), usize::MAX))
                 .chain(selectors)
                 .filter_map(move |selector| {
-                    let rule = match node_actor.style_rules.borrow_mut().entry(selector) {
+                    let rule = match node_actor.style_rules.write().unwrap().entry(selector) {
                         Entry::Vacant(e) => {
                             let name = registry.new_name("style-rule");
                             let actor = StyleRuleActor::new(
@@ -189,7 +189,7 @@ impl PageStyleActor {
                             );
                             let rule = actor.applied(registry)?;
 
-                            registry.register_later(actor);
+                            registry.register(actor);
                             e.insert(name);
                             rule
                         },
@@ -233,14 +233,15 @@ impl PageStyleActor {
         let node_actor = registry.find::<NodeActor>(target);
         let computed = (|| match node_actor
             .style_rules
-            .borrow_mut()
+            .write()
+            .unwrap()
             .entry(("".into(), usize::MAX))
         {
             Entry::Vacant(e) => {
                 let name = registry.new_name("style-rule");
                 let actor = StyleRuleActor::new(name.clone(), target.into(), None);
                 let computed = actor.computed(registry)?;
-                registry.register_later(actor);
+                registry.register(actor);
                 e.insert(name);
                 Some(computed)
             },

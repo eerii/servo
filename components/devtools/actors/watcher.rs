@@ -250,7 +250,7 @@ impl Actor for WatcherActor {
 
                     target.frame_update(&mut request);
                 } else if target_type == "worker" {
-                    for worker_name in &*root.workers.borrow() {
+                    for worker_name in &*root.workers.read().unwrap() {
                         let worker_msg = WatchTargetsReply {
                             from: self.name(),
                             type_: "target-available-form".into(),
@@ -297,8 +297,8 @@ impl Actor for WatcherActor {
                                         .unwrap_or_default()
                                         .as_millis()
                                         as u64,
-                                    title: Some(target.title.borrow().clone()),
-                                    url: Some(target.url.borrow().clone()),
+                                    title: Some(target.title.read().unwrap().clone()),
+                                    url: Some(target.url.read().unwrap().clone()),
                                 };
                                 target.resource_array(
                                     event,
@@ -317,7 +317,7 @@ impl Actor for WatcherActor {
                                 &mut request,
                             );
 
-                            for worker_name in &*root.workers.borrow() {
+                            for worker_name in &*root.workers.read().unwrap() {
                                 let worker = registry.find::<WorkerActor>(worker_name);
                                 let thread = registry.find::<ThreadActor>(&worker.thread);
 
@@ -389,7 +389,7 @@ impl ResourceAvailable for WatcherActor {
 
 impl WatcherActor {
     pub fn new(
-        actors: &mut ActorRegistry,
+        actors: &ActorRegistry,
         browsing_context_actor: String,
         session_context: SessionContext,
     ) -> Self {

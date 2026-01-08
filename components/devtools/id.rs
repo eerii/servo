@@ -53,6 +53,7 @@ impl IdMap {
     }
 }
 
+// TODO: These probably should be atomics
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DevtoolsBrowserId(u32);
 

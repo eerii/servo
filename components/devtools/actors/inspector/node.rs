@@ -5,8 +5,8 @@
 //! This actor represents one DOM node. It is created by the Walker actor when it is traversing the
 //! document tree.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 use base::generic_channel::{self, GenericSender};
 use base::id::PipelineId;
@@ -104,7 +104,7 @@ pub struct NodeActor {
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
     pub pipeline: PipelineId,
     pub walker: String,
-    pub style_rules: RefCell<HashMap<(String, usize), String>>,
+    pub style_rules: RwLock<HashMap<(String, usize), String>>,
 }
 
 impl Actor for NodeActor {
@@ -238,9 +238,9 @@ impl NodeInfoToProtocol for NodeInfo {
                     script_chan: script_chan.clone(),
                     pipeline,
                     walker: walker.clone(),
-                    style_rules: RefCell::new(HashMap::new()),
+                    style_rules: RwLock::new(HashMap::new()),
                 };
-                actors.register_later(node_actor);
+                actors.register(node_actor);
                 name
             } else {
                 actors.script_to_actor(id.to_string())

@@ -9,7 +9,7 @@
 //!
 //! [Firefox JS implementation]: https://searchfox.org/mozilla-central/source/devtools/server/actors/root.js
 
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -128,11 +128,11 @@ struct GetProcessResponse {
 
 #[derive(Default)]
 pub struct RootActor {
-    active_tab: RefCell<Option<String>>,
+    active_tab: RwLock<Option<String>>,
     global_actors: GlobalActors,
     process: String,
-    pub tabs: RefCell<Vec<String>>,
-    pub workers: RefCell<Vec<String>>,
+    pub tabs: RwLock<Vec<String>>,
+    pub workers: RwLock<Vec<String>>,
 }
 
 impl Actor for RootActor {
@@ -221,7 +221,8 @@ impl Actor for RootActor {
                     from: "root".to_owned(),
                     tabs: self
                         .tabs
-                        .borrow()
+                        .read()
+                        .unwrap()
                         .iter()
                         .filter_map(|target| {
                             let tab_actor = registry.find::<TabDescriptorActor>(target);
@@ -242,7 +243,8 @@ impl Actor for RootActor {
                     from: self.name(),
                     workers: self
                         .workers
-                        .borrow()
+                        .read()
+                        .unwrap()
                         .iter()
                         .map(|name| registry.encode::<WorkerActor, _>(name))
                         .collect(),
@@ -303,20 +305,21 @@ impl RootActor {
     ) -> Option<TabDescriptorActorMsg> {
         let mut tab_msg = self
             .tabs
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
             .map(|target| registry.encode::<TabDescriptorActor, _>(target))
             .find(|tab| tab.browser_id() == browser_id);
 
         if let Some(ref mut msg) = tab_msg {
             msg.selected = true;
-            *self.active_tab.borrow_mut() = Some(msg.actor());
+            *self.active_tab.write().unwrap() = Some(msg.actor());
         }
         tab_msg
     }
 
     pub fn active_tab(&self) -> Option<String> {
-        self.active_tab.borrow().clone()
+        self.active_tab.read().unwrap().clone()
     }
 }
 

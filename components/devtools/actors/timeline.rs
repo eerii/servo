@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 #![expect(dead_code)]
+#![allow(unused_imports)]
 
 use std::cell::RefCell;
 use std::net::TcpStream;
@@ -126,7 +127,7 @@ impl Serialize for HighResolutionStamp {
     }
 }
 
-static DEFAULT_TIMELINE_DATA_PULL_TIMEOUT: u64 = 200; // ms
+/* static DEFAULT_TIMELINE_DATA_PULL_TIMEOUT: u64 = 200; // ms
 
 impl TimelineActor {
     pub fn new(
@@ -265,13 +266,13 @@ impl Actor for TimelineActor {
                     .unwrap();
 
                 // TODO: move this to the cleanup method.
-                if let Some(ref actor_name) = *self.framerate_actor.borrow() {
-                    registry.remove(actor_name.clone());
-                }
+                // if let Some(ref actor_name) = *self.framerate_actor.borrow() {
+                //     registry.remove(actor_name.clone());
+                // }
 
-                if let Some(ref actor_name) = *self.memory_actor.borrow() {
-                    registry.remove(actor_name.clone());
-                }
+                // if let Some(ref actor_name) = *self.memory_actor.borrow() {
+                //     registry.remove(actor_name.clone());
+                // }
 
                 **self.is_recording.lock().as_mut().unwrap() = false;
                 self.stream.borrow_mut().take();
@@ -360,4 +361,4 @@ impl Emitter {
 
         Ok(())
     }
-}
+} */

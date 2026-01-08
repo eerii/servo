@@ -118,7 +118,7 @@ impl Actor for TabDescriptorActor {
             "reloadDescriptor" => {
                 // There is an extra bypassCache parameter that we don't currently use.
                 let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
-                let pipeline = ctx_actor.active_pipeline_id.get();
+                let pipeline = ctx_actor.pipeline_id();
                 ctx_actor
                     .script_chan
                     .send(DevtoolScriptControlMsg::Reload(pipeline))
@@ -134,13 +134,13 @@ impl Actor for TabDescriptorActor {
 
 impl TabDescriptorActor {
     pub(crate) fn new(
-        actors: &mut ActorRegistry,
+        actors: &ActorRegistry,
         browsing_context_actor: String,
         is_top_level_global: bool,
     ) -> TabDescriptorActor {
         let name = actors.new_name("tab-description");
         let root = actors.find::<RootActor>("root");
-        root.tabs.borrow_mut().push(name.clone());
+        root.tabs.write().unwrap().push(name.clone());
         TabDescriptorActor {
             name,
             browsing_context_actor,
@@ -160,15 +160,15 @@ impl TabDescriptorActor {
 impl ActorEncode<TabDescriptorActorMsg> for TabDescriptorActor {
     fn encode(&self, registry: &ActorRegistry) -> TabDescriptorActorMsg {
         let ctx_actor = registry.find::<BrowsingContextActor>(&self.browsing_context_actor);
-        let title = ctx_actor.title.borrow().clone();
-        let url = ctx_actor.url.borrow().clone();
+        let title = ctx_actor.title.read().unwrap().clone();
+        let url = ctx_actor.url.read().unwrap().clone();
 
         TabDescriptorActorMsg {
             actor: self.name(),
             browser_id: ctx_actor.browser_id.value(),
             browsing_context_id: ctx_actor.browsing_context_id.value(),
             is_zombie_tab: false,
-            outer_window_id: ctx_actor.active_outer_window_id.get().value(),
+            outer_window_id: ctx_actor.active_outer_window_id.read().unwrap().value(),
             selected: false,
             title,
             traits: DescriptorTraits {
