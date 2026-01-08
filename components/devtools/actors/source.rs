@@ -149,7 +149,7 @@ impl SourceActor {
         introduction_type: String,
         script_sender: GenericSender<DevtoolScriptControlMsg>,
     ) -> String {
-        let source_actor_name = actors.new_name("source");
+        let source_actor_name = actors.new_name::<Self>();
 
         let source_actor = SourceActor::new(
             source_actor_name.clone(),

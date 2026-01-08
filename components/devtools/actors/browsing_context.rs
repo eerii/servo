@@ -212,14 +212,14 @@ impl BrowsingContextActor {
         script_sender: GenericSender<DevtoolScriptControlMsg>,
         registry: &ActorRegistry,
     ) -> BrowsingContextActor {
-        let name = registry.new_name("target");
+        let name = registry.new_name::<BrowsingContextActor>();
         let DevtoolsPageInfo {
             title,
             url,
             is_top_level_global,
         } = page_info;
 
-        let accessibility = AccessibilityActor::new(registry.new_name("accessibility"));
+        let accessibility = AccessibilityActor::new(registry.new_name::<AccessibilityActor>());
 
         let properties = (|| {
             let (properties_sender, properties_receiver) = generic_channel::channel()?;
@@ -228,17 +228,17 @@ impl BrowsingContextActor {
         })()
         .unwrap_or_default();
         let css_properties =
-            CssPropertiesActor::new(registry.new_name("css-properties"), properties);
+            CssPropertiesActor::new(registry.new_name::<CssPropertiesActor>(), properties);
 
         let inspector = InspectorActor::register(registry, pipeline_id, script_sender.clone());
 
-        let reflow = ReflowActor::new(registry.new_name("reflow"));
+        let reflow = ReflowActor::new(registry.new_name::<ReflowActor>());
 
-        let style_sheets = StyleSheetsActor::new(registry.new_name("stylesheets"));
+        let style_sheets = StyleSheetsActor::new(registry.new_name::<StyleSheetsActor>());
 
         let tabdesc = TabDescriptorActor::new(registry, name.clone(), is_top_level_global);
 
-        let thread = ThreadActor::new(registry.new_name("thread"));
+        let thread = ThreadActor::new(registry.new_name::<ThreadActor>());
 
         let watcher = WatcherActor::new(
             registry,
