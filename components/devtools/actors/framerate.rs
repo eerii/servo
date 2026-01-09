@@ -43,7 +43,7 @@ impl FramerateActor {
         };
 
         actor.start_recording();
-        registry.register_later(actor);
+        registry.register(actor);
         actor_name
     }
 

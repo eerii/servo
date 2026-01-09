@@ -189,7 +189,7 @@ impl PageStyleActor {
                             );
                             let rule = actor.applied(registry)?;
 
-                            registry.register_later(actor);
+                            registry.register(actor);
                             e.insert(name);
                             rule
                         },
@@ -240,7 +240,7 @@ impl PageStyleActor {
                 let name = registry.new_name::<StyleRuleActor>();
                 let actor = StyleRuleActor::new(name.clone(), target.into(), None);
                 let computed = actor.computed(registry)?;
-                registry.register_later(actor);
+                registry.register(actor);
                 e.insert(name);
                 Some(computed)
             },
