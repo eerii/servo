@@ -5,12 +5,14 @@
 // TODO: Remove once the actor is used
 #![expect(dead_code)]
 
+use devtools_traits::PauseFrameResult;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::StreamId;
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::actors::environment::{EnvironmentActor, EnvironmentActorMsg};
+use crate::actors::object::{ObjectActor, ObjectActorMsg};
 use crate::protocol::ClientRequest;
 
 #[derive(Serialize)]
@@ -46,6 +48,8 @@ pub(crate) struct FrameActorMsg {
     display_name: String,
     oldest: bool,
     state: FrameState,
+    #[serde(rename = "this")]
+    this_: ObjectActorMsg,
     #[serde(rename = "where")]
     where_: FrameWhere,
 }
@@ -54,7 +58,9 @@ pub(crate) struct FrameActorMsg {
 /// <https://searchfox.org/firefox-main/source/devtools/server/actors/frame.js>
 pub(crate) struct FrameActor {
     name: String,
+    object_actor: String,
     source_actor: String,
+    frame_result: PauseFrameResult,
 }
 
 impl Actor for FrameActor {
@@ -90,8 +96,28 @@ impl Actor for FrameActor {
     }
 }
 
+impl FrameActor {
+    pub fn register(
+        registry: &ActorRegistry,
+        source_actor: String,
+        frame_result: PauseFrameResult,
+    ) -> String {
+        let object_actor = ObjectActor::register(registry, None);
+
+        let name = registry.new_name::<Self>();
+        let actor = Self {
+            name: name.clone(),
+            object_actor,
+            source_actor,
+            frame_result,
+        };
+        registry.register::<Self>(actor);
+        name
+    }
+}
+
 impl ActorEncode<FrameActorMsg> for FrameActor {
-    fn encode(&self, _: &ActorRegistry) -> FrameActorMsg {
+    fn encode(&self, registry: &ActorRegistry) -> FrameActorMsg {
         // TODO: Handle other states
         let state = FrameState::OnStack;
         let async_cause = if let FrameState::OnStack = state {
@@ -99,18 +125,21 @@ impl ActorEncode<FrameActorMsg> for FrameActor {
         } else {
             Some("await".into())
         };
+        // <https://searchfox.org/firefox-main/source/devtools/docs/user/debugger-api/debugger.frame/index.rst>
         FrameActorMsg {
             actor: self.name(),
-            type_: "call".into(),
+            type_: self.frame_result.type_.clone(),
             arguments: vec![],
             async_cause,
-            display_name: "".into(), // TODO: get display name
-            oldest: true,
+            // TODO: Should be optional
+            display_name: self.frame_result.display_name.clone(),
+            this_: registry.encode::<ObjectActor, _>(&self.object_actor),
+            oldest: self.frame_result.oldest,
             state,
             where_: FrameWhere {
                 actor: self.source_actor.clone(),
-                line: 1, // TODO: get from breakpoint?
-                column: 1,
+                line: self.frame_result.line,
+                column: self.frame_result.column,
             },
         }
     }

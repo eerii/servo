@@ -186,7 +186,7 @@ impl ConsoleActor {
             ActorValue { class, uuid } => {
                 // TODO: Make initial ActorValue message include these properties?
                 let mut m = Map::new();
-                let actor = ObjectActor::register(registry, uuid);
+                let actor = ObjectActor::register(registry, Some(uuid));
 
                 m.insert("type".to_owned(), Value::String("object".to_owned()));
                 m.insert("class".to_owned(), Value::String(class));
