@@ -330,6 +330,9 @@ impl RootActor {
     pub fn active_tab(&self) -> Option<String> {
         self.active_tab.borrow().clone()
     }
+
+    // TODO: Send {"from": "root", "type": "tabListChanged"}
+    // TODO: Style is not working
 }
 
 impl ActorEncode<RootActorMsg> for RootActor {

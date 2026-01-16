@@ -9,10 +9,9 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::iter::once;
 
-use base::generic_channel::{self, GenericSender};
-use base::id::PipelineId;
+use base::generic_channel;
 use devtools_traits::DevtoolScriptControlMsg::{GetLayout, GetSelectors};
-use devtools_traits::{ComputedNodeLayout, DevtoolScriptControlMsg};
+use devtools_traits::{ComputedNodeLayout};
 use serde::Serialize;
 use serde_json::{self, Map, Value};
 
@@ -66,8 +65,6 @@ pub struct PageStyleMsg {
 
 pub struct PageStyleActor {
     pub name: String,
-    pub script_chan: GenericSender<DevtoolScriptControlMsg>,
-    pub pipeline: PipelineId,
 }
 
 impl Actor for PageStyleActor {
@@ -129,18 +126,18 @@ impl PageStyleActor {
         )
         .unwrap_or_default()
         .into_iter()
-        .flat_map(|node| {
-            let inherited = (node.actor != target).then(|| node.actor.clone());
-            let node_actor = registry.find::<NodeActor>(&node.actor);
+        .flat_map(|msg| {
+            let inherited = (msg.actor != target).then(|| msg.actor.clone());
+            let node_actor = registry.find::<NodeActor>(&msg.actor);
 
             // Get the css selectors that match this node present in the currently active stylesheets.
             let selectors = (|| {
                 let (selectors_sender, selector_receiver) = generic_channel::channel()?;
-                walker
+                node
                     .script_chan
                     .send(GetSelectors(
-                        walker.pipeline,
-                        registry.actor_to_script(node.actor.clone()),
+                        node.pipeline,
+                        registry.actor_to_script(msg.actor.clone()),
                         selectors_sender,
                     ))
                     .ok()?;
@@ -243,10 +240,11 @@ impl PageStyleActor {
             .ok_or(ActorError::MissingParameter)?
             .as_str()
             .ok_or(ActorError::BadParameterType)?;
+        let node = registry.find::<NodeActor>(target);
         let (tx, rx) = generic_channel::channel().ok_or(ActorError::Internal)?;
-        self.script_chan
+        node.script_chan
             .send(GetLayout(
-                self.pipeline,
+                node.pipeline,
                 registry.actor_to_script(target.to_owned()),
                 tx,
             ))
