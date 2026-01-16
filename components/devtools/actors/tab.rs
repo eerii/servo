@@ -174,6 +174,7 @@ impl ActorEncode<TabDescriptorActorMsg> for TabDescriptorActor {
             traits: DescriptorTraits {
                 watcher: true,
                 supports_reload_descriptor: true,
+                supports_navigation: Some(true),
             },
             url,
         }

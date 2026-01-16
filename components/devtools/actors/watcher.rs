@@ -11,10 +11,9 @@
 //! [Firefox JS implementation]: https://searchfox.org/mozilla-central/source/devtools/server/actors/descriptors/watcher.js
 
 use std::collections::HashMap;
-use std::net::TcpStream;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::str::FromStr;
 
-use base::id::BrowsingContextId;
+use devtools_traits::{DevtoolsPageInfo, NavigationState};
 use log::warn;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -34,7 +33,7 @@ use crate::actors::watcher::target_configuration::{
 use crate::actors::watcher::thread_configuration::ThreadConfigurationActor;
 use crate::protocol::{ClientRequest, JsonPacketStream};
 use crate::resource::{ResourceArrayType, ResourceAvailable};
-use crate::{ActorMsg, EmptyReplyMsg, IdMap, StreamId, WorkerActor};
+use crate::{ActorMsg, EmptyReplyMsg, StreamId, WorkerActor};
 
 pub mod network_parent;
 pub mod target_configuration;
@@ -154,19 +153,6 @@ struct GetBreakpointListActorReply {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DocumentEvent {
-    #[serde(rename = "hasNativeConsoleAPI")]
-    has_native_console_api: Option<bool>,
-    name: String,
-    #[serde(rename = "newURI")]
-    new_uri: Option<String>,
-    time: u64,
-    title: Option<String>,
-    url: Option<String>,
-}
-
-#[derive(Serialize)]
 struct WatcherTraits {
     resources: HashMap<&'static str, bool>,
     #[serde(flatten)]
@@ -187,19 +173,6 @@ pub(crate) struct WatcherActor {
     thread_configuration: String,
     breakpoint_list: String,
     session_context: SessionContext,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WillNavigateMessage {
-    #[serde(rename = "browsingContextID")]
-    browsing_context_id: u32,
-    inner_window_id: u32,
-    name: String,
-    time: u128,
-    is_frame_switching: bool,
-    #[serde(rename = "newURI")]
-    new_uri: ServoUrl,
 }
 
 impl Actor for WatcherActor {
@@ -286,28 +259,22 @@ impl Actor for WatcherActor {
                     };
                     match resource {
                         "document-event" => {
-                            // TODO: This is a hacky way of sending the 3 messages
-                            //       Figure out if there needs work to be done here, ensure the page is loaded
-                            for &name in ["dom-loading", "dom-interactive", "dom-complete"].iter() {
-                                let event = DocumentEvent {
-                                    has_native_console_api: None,
-                                    name: name.into(),
-                                    new_uri: None,
-                                    time: SystemTime::now()
-                                        .duration_since(UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_millis()
-                                        as u64,
-                                    title: Some(target.title.borrow().clone()),
-                                    url: Some(target.url.borrow().clone()),
-                                };
-                                target.resource_array(
-                                    event,
-                                    resource.into(),
-                                    ResourceArrayType::Available,
-                                    &mut request,
-                                );
-                            }
+                            // TODO: Do like console and cache the document events
+                            let url = ServoUrl::from_str(&target.url.borrow())
+                                .expect("Should be a valid url");
+                            target.navigate(registry, NavigationState::Start(url.clone()), None);
+                            target.navigate(
+                                registry,
+                                NavigationState::Stop(
+                                    target.pipeline_id(),
+                                    DevtoolsPageInfo {
+                                        title: target.title.borrow().clone(),
+                                        url,
+                                        is_top_level_global: false,
+                                    },
+                                ),
+                                None,
+                            );
                         },
                         "source" => {
                             let thread_actor = registry.find::<ThreadActor>(&target.thread);
@@ -441,35 +408,6 @@ impl WatcherActor {
         actors.register(breakpoint_list);
 
         watcher
-    }
-
-    pub fn emit_will_navigate(
-        &self,
-        browsing_context_id: BrowsingContextId,
-        url: ServoUrl,
-        connections: &mut Vec<TcpStream>,
-        id_map: &mut IdMap,
-    ) {
-        let msg = WillNavigateMessage {
-            browsing_context_id: id_map.browsing_context_id(browsing_context_id).value(),
-            inner_window_id: 0, // TODO: set this to the correct value
-            name: "will-navigate".to_string(),
-            time: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis(),
-            is_frame_switching: false, // TODO: Implement frame switching
-            new_uri: url,
-        };
-
-        for stream in connections {
-            self.resource_array(
-                msg.clone(),
-                "document-event".to_string(),
-                ResourceArrayType::Available,
-                stream,
-            );
-        }
     }
 }
 

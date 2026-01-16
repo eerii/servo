@@ -38,10 +38,9 @@ use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::console::{ConsoleActor, Root};
 use crate::actors::framerate::FramerateActor;
 use crate::actors::network_event::NetworkEventActor;
-use crate::actors::root::RootActor;
+use crate::actors::root::{RootActor, TabListChangedMessage};
 use crate::actors::source::SourceActor;
 use crate::actors::thread::ThreadActor;
-use crate::actors::watcher::WatcherActor;
 use crate::actors::worker::{WorkerActor, WorkerType};
 use crate::id::IdMap;
 use crate::network_handler::handle_network_event;
@@ -308,25 +307,25 @@ impl DevtoolsInstance {
         framerate_actor.add_tick(tick);
     }
 
-    fn handle_navigate(&self, browsing_context_id: BrowsingContextId, state: NavigationState) {
+    fn handle_navigate(&mut self, browsing_context_id: BrowsingContextId, state: NavigationState) {
         let actor_name = self.browsing_contexts.get(&browsing_context_id).unwrap();
         let actors = &self.registry;
-        let actor = actors.find::<BrowsingContextActor>(actor_name);
+        let finished = matches!(state, NavigationState::Stop(_, _));
+
+        let browsing_context = actors.find::<BrowsingContextActor>(actor_name);
         let mut id_map = self.id_map.lock().expect("Mutex poisoned");
-        if let NavigationState::Start(url) = &state {
-            let mut connections = Vec::<TcpStream>::new();
-            for stream in self.connections.values() {
-                connections.push(stream.try_clone().unwrap());
+        browsing_context.navigate(&self.registry, state, Some(&mut id_map));
+
+        if finished {
+            let root = actors.find::<RootActor>("root");
+            for stream in self.connections.values_mut() {
+                let _ = stream.write_json_packet(&TabListChangedMessage {
+                    from: root.name(),
+                    type_: "tabListChanged".into(),
+                });
+                browsing_context.frame_update(stream);
             }
-            let watcher_actor = actors.find::<WatcherActor>(&actor.watcher);
-            watcher_actor.emit_will_navigate(
-                browsing_context_id,
-                url.clone(),
-                &mut connections,
-                &mut id_map,
-            );
-        };
-        actor.navigate(state, &mut id_map);
+        }
     }
 
     // We need separate actor representations for each script global that exists;

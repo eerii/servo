@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use atomic_refcell::AtomicRefCell;
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::actors::device::DeviceActor;
@@ -119,6 +119,8 @@ struct ListProcessesResponse {
 pub(crate) struct DescriptorTraits {
     pub(crate) watcher: bool,
     pub(crate) supports_reload_descriptor: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) supports_navigation: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -126,6 +128,13 @@ pub(crate) struct DescriptorTraits {
 struct GetProcessResponse {
     from: String,
     process_descriptor: ProcessActorMsg,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TabListChangedMessage {
+    pub from: String,
+    #[serde(rename = "type")]
+    pub type_: String,
 }
 
 #[derive(Default)]
@@ -151,12 +160,7 @@ impl Actor for RootActor {
         _id: StreamId,
     ) -> Result<(), ActorError> {
         match msg_type {
-            "connect" => {
-                let message = json!({
-                    "from": "root",
-                });
-                request.reply_final(&message)?
-            },
+            "connect" => request.reply_final(&EmptyReplyMsg { from: self.name() })?,
 
             // TODO: Unexpected message getTarget for process (when inspecting)
             "getProcess" => {
@@ -170,7 +174,7 @@ impl Actor for RootActor {
 
             "getRoot" => {
                 let actor = GetRootReply {
-                    from: "root".to_owned(),
+                    from: self.name(),
                     global_actors: self.global_actors.clone(),
                 };
                 request.reply_final(&actor)?
@@ -195,7 +199,7 @@ impl Actor for RootActor {
 
             "listAddons" => {
                 let actor = ListAddonsReply {
-                    from: "root".to_owned(),
+                    from: self.name(),
                     addons: vec![],
                 };
                 request.reply_final(&actor)?
@@ -220,7 +224,7 @@ impl Actor for RootActor {
 
             "listTabs" => {
                 let actor = ListTabsReply {
-                    from: "root".to_owned(),
+                    from: self.name(),
                     tabs: self
                         .tabs
                         .borrow()
@@ -335,7 +339,7 @@ impl RootActor {
 impl ActorEncode<RootActorMsg> for RootActor {
     fn encode(&self, _: &ActorRegistry) -> RootActorMsg {
         RootActorMsg {
-            from: "root".to_owned(),
+            from: self.name(),
             application_type: "browser".to_owned(),
             traits: RootTraits {
                 sources: false,

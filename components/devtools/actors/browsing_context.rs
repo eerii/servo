@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::net::TcpStream;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use atomic_refcell::AtomicRefCell;
 use base::generic_channel::{self, GenericSender};
@@ -31,7 +32,7 @@ use crate::actors::thread::ThreadActor;
 use crate::actors::watcher::{SessionContext, SessionContextType, WatcherActor};
 use crate::id::{DevtoolsBrowserId, DevtoolsBrowsingContextId, DevtoolsOuterWindowId, IdMap};
 use crate::protocol::{ClientRequest, JsonPacketStream};
-use crate::resource::ResourceAvailable;
+use crate::resource::{ResourceArrayType, ResourceAvailable};
 use crate::{EmptyReplyMsg, StreamId};
 
 #[derive(Serialize)]
@@ -58,19 +59,6 @@ struct FrameUpdateMsg {
 }
 
 #[derive(Serialize)]
-struct TabNavigated {
-    from: String,
-    #[serde(rename = "type")]
-    type_: String,
-    url: String,
-    title: Option<String>,
-    #[serde(rename = "nativeConsoleAPI")]
-    native_console_api: bool,
-    state: String,
-    is_frame_switching: bool,
-}
-
-#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BrowsingContextTraits {
     frames: bool,
@@ -86,6 +74,83 @@ struct BrowsingContextTraits {
 enum TargetType {
     Frame,
     // Other target types not implemented yet.
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum DocumentEventName {
+    #[default]
+    WillNavigate,
+    DomLoading,
+    DomInteractive,
+    DomComplete,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentEvent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "browsingContextID")]
+    browsing_context_id: Option<u32>,
+    #[serde(rename = "hasNativeConsoleAPI")]
+    has_native_console_api: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inner_window_id: Option<u32>,
+    name: DocumentEventName,
+    #[serde(rename = "newURI")]
+    new_uri: Option<String>,
+    time: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+}
+
+impl DocumentEvent {
+    fn now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+
+    fn will_navigate(url: String, browsing_context_id: u32, inner_window_id: u32) -> Self {
+        Self {
+            browsing_context_id: Some(browsing_context_id),
+            inner_window_id: Some(inner_window_id),
+            name: DocumentEventName::WillNavigate,
+            new_uri: Some(url),
+            time: Self::now(),
+            ..Default::default()
+        }
+    }
+
+    fn dom_loading(url: String) -> Self {
+        Self {
+            name: DocumentEventName::DomLoading,
+            time: Self::now(),
+            url: Some(url),
+            ..Default::default()
+        }
+    }
+
+    fn dom_interactive(title: String, url: String) -> Self {
+        Self {
+            name: DocumentEventName::DomInteractive,
+            time: Self::now(),
+            title: Some(title),
+            url: Some(url),
+            ..Default::default()
+        }
+    }
+
+    fn dom_complete() -> Self {
+        Self {
+            name: DocumentEventName::DomComplete,
+            time: Self::now(),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -280,35 +345,65 @@ impl BrowsingContextActor {
         target
     }
 
-    pub(crate) fn navigate(&self, state: NavigationState, id_map: &mut IdMap) {
-        let (pipeline_id, title, url, state) = match state {
-            NavigationState::Start(url) => (None, None, url, "start"),
-            NavigationState::Stop(pipeline, info) => {
-                (Some(pipeline), Some(info.title), info.url, "stop")
+    pub(crate) fn navigate(
+        &self,
+        registry: &ActorRegistry,
+        state: NavigationState,
+        id_map: Option<&mut IdMap>,
+    ) {
+        match state {
+            NavigationState::Start(url) => {
+                let watcher = registry.find::<WatcherActor>(&self.watcher);
+
+                for stream in self.streams.borrow_mut().values_mut() {
+                    // will-navigate
+                    if id_map.is_some() {
+                        watcher.resource_array(
+                            DocumentEvent::will_navigate(
+                                url.clone().into_string(),
+                                self.browsing_context_id.value(),
+                                0, // TODO: Send correct inner window id
+                            ),
+                            "document-event".into(),
+                            ResourceArrayType::Available,
+                            stream,
+                        );
+                    }
+                    // dom-loading
+                    self.resource_array(
+                        DocumentEvent::dom_loading(url.clone().into_string()),
+                        "document-event".into(),
+                        ResourceArrayType::Available,
+                        stream,
+                    );
+                }
+
+                *self.url.borrow_mut() = url.into_string();
             },
-        };
-        if let Some(pipeline_id) = pipeline_id {
-            let outer_window_id = id_map.outer_window_id(pipeline_id);
-            *self.active_outer_window_id.borrow_mut() = outer_window_id;
-            *self.active_pipeline_id.borrow_mut() = pipeline_id;
-        }
-        url.as_str().clone_into(&mut self.url.borrow_mut());
-        if let Some(ref t) = title {
-            self.title.borrow_mut().clone_from(t);
-        }
+            NavigationState::Stop(pipeline_id, info) => {
+                for stream in self.streams.borrow_mut().values_mut() {
+                    // dom-interactive
+                    self.resources_array(
+                        vec![
+                            DocumentEvent::dom_interactive(
+                                info.title.clone(),
+                                info.url.clone().into_string(),
+                            ),
+                            DocumentEvent::dom_complete(),
+                        ],
+                        "document-event".into(),
+                        ResourceArrayType::Available,
+                        stream,
+                    );
+                }
 
-        let msg = TabNavigated {
-            from: self.name(),
-            type_: "tabNavigated".to_owned(),
-            url: url.as_str().to_owned(),
-            title,
-            native_console_api: true,
-            state: state.to_owned(),
-            is_frame_switching: false,
-        };
-
-        for stream in self.streams.borrow_mut().values_mut() {
-            let _ = stream.write_json_packet(&msg);
+                if let Some(id_map) = id_map {
+                    *self.active_outer_window_id.borrow_mut() = id_map.outer_window_id(pipeline_id);
+                    *self.active_pipeline_id.borrow_mut() = pipeline_id;
+                    *self.url.borrow_mut() = info.url.into_string();
+                    *self.title.borrow_mut() = info.title;
+                }
+            },
         }
     }
 
@@ -319,12 +414,12 @@ impl BrowsingContextActor {
         *self.title.borrow_mut() = title;
     }
 
-    pub(crate) fn frame_update(&self, request: &mut ClientRequest) {
+    pub(crate) fn frame_update<T: JsonPacketStream>(&self, request: &mut T) {
         let _ = request.write_json_packet(&FrameUpdateReply {
             from: self.name(),
             type_: "frameUpdate".into(),
             frames: vec![FrameUpdateMsg {
-                id: self.browsing_context_id.value(),
+                id: self.outer_window_id().value(),
                 is_top_level: true,
                 title: self.title.borrow().clone(),
                 url: self.url.borrow().clone(),
