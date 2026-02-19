@@ -159,12 +159,40 @@ addEventListener("setBreakpoint", event => {
     }
 });
 
+function makeSteppingHooks(stepping_type) {
+    return {
+        onEnterFrame: (frame) => {
+            const { onStep, onPop } = makeSteppingHooks("next");
+            console.log("-------- onEnterFrame");
+            frame.onStep = onStep;
+            frame.onPop = onPop;
+            return undefined;
+        },
+        onStep: () => {
+            const frame = this;
+            console.log("-------- onStep", JSON.Stringify(this));
+            // TODO: Check if valid offset
+            return handlePauseAndRespond(frame, false);
+        },
+        onPop: () => {
+            const frame = this;
+            console.log("-------- onPop", JSON.Stringify(this));
+            return undefined;
+        },
+    }
+}
+
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Frame.html>
 addEventListener("interrupt", event => {
     dbg.onEnterFrame = function(frame) {
         dbg.onEnterFrame = undefined;
         handlePauseAndRespond(frame, false);
     };
+});
+
+addEventListener("resume", event => {
+    const {resumeLimit} = event;
+    console.log("--------- resume", resumeLimit ? resumeLimit.type_ : "null");
 });
 
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Script.html#clearbreakpoint-handler-offset>

@@ -38,10 +38,12 @@ use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::utils::define_all_exposed_interfaces;
 use crate::dom::debuggerclearbreakpointevent::DebuggerClearBreakpointEvent;
 use crate::dom::debuggerinterruptevent::DebuggerInterruptEvent;
+use crate::dom::debuggerresumeevent::DebuggerResumeEvent;
 use crate::dom::debuggersetbreakpointevent::DebuggerSetBreakpointEvent;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::types::{
     DebuggerAddDebuggeeEvent, DebuggerEvalEvent, DebuggerGetPossibleBreakpointsEvent, Event,
+    ResumeLimit,
 };
 #[cfg(feature = "webgpu")]
 use crate::dom::webgpu::identityhub::IdentityHub;
@@ -260,6 +262,20 @@ impl DebuggerGlobalScope {
         );
     }
 
+    pub(crate) fn fire_resume(&self, resume_limit: Option<String>, can_gc: CanGc) {
+        let resume_limit = resume_limit
+            .map(|resume_limit| ResumeLimit::new(self.upcast(), resume_limit.into(), can_gc));
+        let event = DomRoot::upcast::<Event>(DebuggerResumeEvent::new(
+            self.upcast(),
+            resume_limit.as_deref(),
+            can_gc,
+        ));
+        assert!(
+            event.fire(self.upcast(), can_gc),
+            "Guaranteed by DebuggerResumeEvent::new"
+        );
+    }
+
     pub(crate) fn fire_clear_breakpoint(
         &self,
         can_gc: CanGc,
@@ -451,7 +467,12 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         let _ = sender.send(reply);
     }
 
-    fn PauseAndRespond(&self, pipeline_id: &PipelineIdInit, result: &PausedFrame, is_breakpoint: bool) {
+    fn PauseAndRespond(
+        &self,
+        pipeline_id: &PipelineIdInit,
+        result: &PausedFrame,
+        is_breakpoint: bool,
+    ) {
         let pipeline_id = PipelineId {
             namespace_id: PipelineNamespaceId(pipeline_id.namespaceId),
             index: Index::new(pipeline_id.index).expect("`pipelineId.index` must not be zero"),
