@@ -29,6 +29,8 @@ pub enum BackendError {
     StoreNotFound,
     /// The storage quota was exceeded
     QuotaExceeded,
+    /// The transaction was aborted
+    Abort,
 
     DbErr(DbError),
 }
@@ -45,6 +47,7 @@ impl Display for BackendError {
             BackendError::DbNotFound => write!(f, "DbNotFound"),
             BackendError::StoreNotFound => write!(f, "StoreNotFound"),
             BackendError::QuotaExceeded => write!(f, "QuotaExceeded"),
+            BackendError::Abort => write!(f, "Abort"),
             BackendError::DbErr(err) => write!(f, "{err}"),
         }
     }
@@ -61,7 +64,7 @@ pub enum KeyPath {
 }
 
 // https://www.w3.org/TR/IndexedDB-2/#enumdef-idbtransactionmode
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum IndexedDBTxnMode {
     Readonly,
     Readwrite,
@@ -394,7 +397,6 @@ pub enum ConnectionMsg {
         id: Uuid,
         version: u64,
         old_version: u64,
-        transaction: u64,
     },
     /// A `versionchange` event should be fired for a connection.
     VersionChange {
@@ -418,6 +420,16 @@ pub enum ConnectionMsg {
         id: Uuid,
         error: BackendError,
     },
+    /// Ask script to recheck whether a transaction can commit now.
+    TxnMaybeCommit { db_name: String, txn: u64 },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TxnCompleteMsg {
+    pub origin: ImmutableOrigin,
+    pub db_name: String,
+    pub txn: u64,
+    pub result: BackendResult<()>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -452,11 +464,56 @@ pub enum SyncOperation {
 
     /// Commits changes of a transaction to the database
     Commit(
-        GenericSender<BackendResult<()>>,
+        GenericCallback<TxnCompleteMsg>,
         ImmutableOrigin,
         String, // Database
         u64,    // Transaction serial number
     ),
+    /// Aborts a transaction in the backend
+    Abort(
+        GenericCallback<TxnCompleteMsg>,
+        ImmutableOrigin,
+        String, // Database
+        u64,    // Transaction serial number
+    ),
+    /// Upgrade transaction finished after its event was fired in script.
+    UpgradeTransactionFinished {
+        origin: ImmutableOrigin,
+        db_name: String,
+        txn: u64,
+        committed: bool,
+    },
+    /// <https://w3c.github.io/IndexedDB/#transaction-lifetime
+    /// Step 3:
+    /// When each request associated with a transaction is processed,
+    /// a success or error event will be fired. While the event is
+    /// being dispatched, the transaction state is set to active, allowing
+    /// additional requests to be made against the transaction. Once the
+    /// event dispatch is complete, the transaction’s state is set to inactive again.
+    RequestHandled {
+        origin: ImmutableOrigin,
+        db_name: String,
+        txn: u64,
+        request_id: u64,
+    },
+    CreateTransaction {
+        sender: GenericSender<BackendResult<u64>>,
+        origin: ImmutableOrigin,
+        db_name: String,
+        mode: IndexedDBTxnMode,
+        scope: Vec<String>,
+    },
+    /// Request script to recheck transaction commit eligibility.
+    TxnMaybeCommit {
+        origin: ImmutableOrigin,
+        db_name: String,
+        txn: u64,
+    },
+    TransactionFinished {
+        origin: ImmutableOrigin,
+        db_name: String,
+        txn: u64,
+    },
 
     /// Creates a new index for the database
     CreateIndex(
@@ -520,24 +577,6 @@ pub enum SyncOperation {
         Uuid,
     ),
 
-    /// Returns an unique identifier that is used to be able to
-    /// commit/abort transactions.
-    RegisterNewTxn(
-        /// The unique identifier of the transaction
-        GenericSender<u64>,
-        ImmutableOrigin,
-        String, // Database
-    ),
-
-    /// Starts executing the requests of a transaction
-    /// <https://www.w3.org/TR/IndexedDB-2/#transaction-start>
-    StartTransaction(
-        GenericSender<BackendResult<()>>,
-        ImmutableOrigin,
-        String, // Database
-        u64,    // The serial number of the mutating transaction
-    ),
-
     /// Returns the version of the database
     Version(
         GenericSender<BackendResult<u64>>,
@@ -577,12 +616,14 @@ pub enum IndexedDBThreadMsg {
         String, // Database
         String, // ObjectStore
         u64,    // Serial number of the transaction that requests this operation
+        u64,    // Monotonic request id in the transaction
         IndexedDBTxnMode,
         AsyncOperation,
     ),
-    OpenTransactionInactive {
-        name: String,
+    EngineTxnBatchComplete {
         origin: ImmutableOrigin,
+        db_name: String,
+        txn: u64,
     },
 }
 
