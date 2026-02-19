@@ -14,7 +14,8 @@
 use std::borrow::ToOwned;
 use std::collections::HashMap;
 use std::io::Read;
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -36,6 +37,7 @@ use rand::{RngCore, rng};
 use resource::{ResourceArrayType, ResourceAvailable};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
+use servo_config::pref;
 
 use crate::actor::{Actor, ActorError, ActorRegistry};
 use crate::actors::browsing_context::BrowsingContextActor;
@@ -110,7 +112,6 @@ pub(crate) struct ActorMsg {
 
 /// Spin up a devtools server that listens for connections on the specified port.
 pub fn start_server(
-    port: u16,
     embedder: EmbedderProxy,
     mem_profiler_chan: ProfilerChan,
 ) -> Sender<DevtoolsControlMsg> {
@@ -123,8 +124,7 @@ pub fn start_server(
             .spawn(move || {
                 mem_profiler_chan.run_with_memory_reporting(
                     || {
-                        if let Some(instance) =
-                            DevtoolsInstance::create(sender, receiver, port, embedder)
+                        if let Some(instance) = DevtoolsInstance::create(sender, receiver, embedder)
                         {
                             instance.run()
                         }
@@ -172,10 +172,20 @@ impl DevtoolsInstance {
     fn create(
         sender: Sender<DevtoolsControlMsg>,
         receiver: Receiver<DevtoolsControlMsg>,
-        port: u16,
         embedder: EmbedderProxy,
     ) -> Option<Self> {
-        let bound = TcpListener::bind(("0.0.0.0", port)).ok().and_then(|l| {
+        let address = if pref!(devtools_server_listen_address).is_empty() {
+            SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 7000)
+        } else if let Ok(addr) = SocketAddr::from_str(&pref!(devtools_server_listen_address)) {
+            addr
+        } else if let Ok(port) = pref!(devtools_server_listen_address).parse() {
+            SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), port)
+        } else {
+            SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 7000)
+        };
+        println!("Binding devtools to {address}");
+
+        let bound = TcpListener::bind(address).ok().and_then(|l| {
             l.local_addr()
                 .map(|addr| addr.port())
                 .ok()
@@ -183,7 +193,11 @@ impl DevtoolsInstance {
         });
 
         // A token shared with the embedder to bypass permission prompt.
-        let port = if bound.is_some() { Ok(port) } else { Err(()) };
+        let port = if bound.is_some() {
+            Ok(address.port())
+        } else {
+            Err(())
+        };
         let token = format!("{:X}", rng().next_u32());
         embedder.send(EmbedderMsg::OnDevtoolsStarted(port, token.clone()));
 
