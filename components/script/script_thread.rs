@@ -92,7 +92,7 @@ use script_traits::{
     UpdatePipelineIdReason,
 };
 use servo_arc::Arc as ServoArc;
-use servo_config::{opts, prefs};
+use servo_config::{opts, pref, prefs};
 use servo_url::{ImmutableOrigin, MutableOrigin, OriginSnapshot, ServoUrl};
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::WebStorageType;
@@ -407,6 +407,10 @@ pub struct ScriptThread {
     /// A list of URLs that can access privileged internal APIs.
     #[no_trace]
     privileged_urls: Vec<ServoUrl>,
+
+    /// Whether accessibility is active. If true, each Layout will maintain an accessibility tree
+    /// and send accessibility updates to the embedder.
+    accessibility_active: Cell<bool>,
 }
 
 struct BHMExitSignal {
@@ -1038,6 +1042,7 @@ impl ScriptThread {
                     debugger_paused: Cell::new(false),
                     privileged_urls: state.privileged_urls,
                     this: weak_script_thread.clone(),
+                    accessibility_active: Cell::new(state.accessibility_active),
                 }
             }),
             cx,
@@ -1965,6 +1970,9 @@ impl ScriptThread {
             },
             ScriptThreadMessage::UpdatePinchZoomInfos(id, pinch_zoom_infos) => {
                 self.handle_update_pinch_zoom_infos(id, pinch_zoom_infos, CanGc::from_cx(cx));
+            },
+            ScriptThreadMessage::SetAccessibilityActive(active) => {
+                self.set_accessibility_active(active);
             },
         }
     }
@@ -3342,6 +3350,7 @@ impl ScriptThread {
             viewport_details: incomplete.viewport_details,
             user_stylesheets,
             theme: incomplete.theme,
+            accessibility_active: self.accessibility_active.get(),
         };
 
         // Create the window and document objects.
@@ -3631,6 +3640,21 @@ impl ScriptThread {
             return;
         };
         document.event_handler().note_pending_input_event(event);
+    }
+
+    fn set_accessibility_active(&self, active: bool) {
+        if !(pref!(accessibility_enabled)) {
+            return;
+        }
+
+        let old_value = self.accessibility_active.replace(active);
+        if active == old_value {
+            return;
+        }
+
+        for (_, document) in self.documents.borrow().iter() {
+            document.window().layout().set_accessibility_active(active);
+        }
     }
 
     /// Handle a "navigate an iframe" message from the constellation.
