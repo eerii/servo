@@ -5,6 +5,7 @@
 use base::id::PipelineId;
 use constellation_traits::{ScriptToConstellationMessage, StructuredSerializedData};
 use dom_struct::dom_struct;
+use js::context::JSContext;
 use js::jsapi::{Heap, JSObject};
 use js::jsval::UndefinedValue;
 use js::rust::{CustomAutoRooter, CustomAutoRooterGuard, HandleValue, MutableHandleValue};
@@ -22,7 +23,7 @@ use crate::dom::bindings::trace::RootedTraceableBox;
 use crate::dom::dissimilaroriginlocation::DissimilarOriginLocation;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::windowproxy::WindowProxy;
-use crate::script_runtime::{CanGc, JSContext};
+use crate::script_runtime::CanGc;
 
 /// Represents a dissimilar-origin `Window` that exists in another script thread.
 ///
@@ -142,7 +143,7 @@ impl DissimilarOriginWindowMethods<crate::DomTypeHolder> for DissimilarOriginWin
     /// <https://html.spec.whatwg.org/multipage/#dom-window-postmessage>
     fn PostMessage(
         &self,
-        cx: JSContext,
+        cx: &mut JSContext,
         message: HandleValue,
         target_origin: USVString,
         transfer: CustomAutoRooterGuard<Vec<*mut JSObject>>,
@@ -153,7 +154,7 @@ impl DissimilarOriginWindowMethods<crate::DomTypeHolder> for DissimilarOriginWin
     /// <https://html.spec.whatwg.org/multipage/#dom-window-postmessage-options>
     fn PostMessage_(
         &self,
-        cx: JSContext,
+        cx: &mut JSContext,
         message: HandleValue,
         options: RootedTraceableBox<WindowPostMessageOptions>,
     ) -> ErrorResult {
@@ -165,19 +166,20 @@ impl DissimilarOriginWindowMethods<crate::DomTypeHolder> for DissimilarOriginWin
                 .map(|js: &RootedTraceableBox<Heap<*mut JSObject>>| js.get())
                 .collect(),
         );
-        let transfer = CustomAutoRooterGuard::new(*cx, &mut rooted);
+        #[expect(unsafe_code)]
+        let transfer = unsafe { CustomAutoRooterGuard::new(cx.raw_cx(), &mut rooted) };
 
         self.post_message_impl(&options.targetOrigin, cx, message, transfer)
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-opener>
-    fn Opener(&self, _: JSContext, mut retval: MutableHandleValue) {
+    fn Opener(&self, _: &mut JSContext, mut retval: MutableHandleValue) {
         // TODO: Implement x-origin opener
         retval.set(UndefinedValue());
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-opener>
-    fn SetOpener(&self, _: JSContext, _: HandleValue) {
+    fn SetOpener(&self, _: &mut JSContext, _: HandleValue) {
         // TODO: Implement x-origin opener
     }
 
@@ -204,12 +206,12 @@ impl DissimilarOriginWindow {
     fn post_message_impl(
         &self,
         target_origin: &USVString,
-        cx: JSContext,
+        cx: &mut JSContext,
         message: HandleValue,
         transfer: CustomAutoRooterGuard<Vec<*mut JSObject>>,
     ) -> ErrorResult {
         // Step 6-7.
-        let data = structuredclone::write(cx, message, Some(transfer))?;
+        let data = structuredclone::write(cx.into(), message, Some(transfer))?;
 
         self.post_message(target_origin, data)
     }
