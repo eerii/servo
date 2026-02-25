@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::str;
 
@@ -16,6 +17,8 @@ use js::conversions::jsstr_to_string;
 use js::jsval::UndefinedValue;
 use js::rust::ToString;
 use markup5ever::{LocalName, ns};
+use rustc_hash::FxHashMap;
+use script_bindings::root::Dom;
 use servo_config::pref;
 use style::attr::AttrValue;
 use uuid::Uuid;
@@ -35,6 +38,7 @@ use crate::dom::bindings::conversions::{ConversionResult, FromJSValConvertible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
+use crate::dom::bindings::trace::NoTrace;
 use crate::dom::css::cssstyledeclaration::ENABLED_LONGHAND_PROPERTIES;
 use crate::dom::css::cssstylerule::CSSStyleRule;
 use crate::dom::document::AnimationFrameCallback;
@@ -44,6 +48,79 @@ use crate::dom::node::{Node, NodeTraits, ShadowIncluding};
 use crate::dom::types::{EventTarget, HTMLElement};
 use crate::realms::{enter_auto_realm, enter_realm};
 use crate::script_runtime::{CanGc, IntroductionType};
+
+#[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
+#[derive(JSTraceable)]
+pub(crate) struct PerPipelineState {
+    #[no_trace]
+    pipeline: PipelineId,
+
+    /// Maps from a node's unique ID to the Node itself
+    known_nodes: FxHashMap<String, Dom<Node>>,
+}
+
+#[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
+#[derive(JSTraceable, Default)]
+pub(crate) struct DevtoolsState {
+    per_pipeline_state: RefCell<FxHashMap<NoTrace<PipelineId>, PerPipelineState>>,
+}
+
+impl PerPipelineState {
+    fn register_node(&mut self, node: &Node) {
+        let unique_id = node.unique_id(self.pipeline);
+        self.known_nodes
+            .entry(unique_id)
+            .or_insert_with(|| Dom::from_ref(node));
+    }
+}
+
+impl DevtoolsState {
+    pub(crate) fn notify_pipeline_created(&self, pipeline: PipelineId) {
+        self.per_pipeline_state.borrow_mut().insert(
+            NoTrace(pipeline),
+            PerPipelineState {
+                pipeline,
+                known_nodes: Default::default(),
+            },
+        );
+    }
+    pub(crate) fn notify_pipeline_exited(&self, pipeline: PipelineId) {
+        self.per_pipeline_state
+            .borrow_mut()
+            .remove(&NoTrace(pipeline));
+    }
+
+    fn pipeline_state_for(&self, pipeline: PipelineId) -> Option<Ref<'_, PerPipelineState>> {
+        Ref::filter_map(self.per_pipeline_state.borrow(), |state| {
+            state.get(&NoTrace(pipeline))
+        })
+        .ok()
+    }
+
+    fn mut_pipeline_state_for(&self, pipeline: PipelineId) -> Option<RefMut<'_, PerPipelineState>> {
+        RefMut::filter_map(self.per_pipeline_state.borrow_mut(), |state| {
+            state.get_mut(&NoTrace(pipeline))
+        })
+        .ok()
+    }
+
+    pub(crate) fn wants_updates_for_node(&self, pipeline: PipelineId, node: &Node) -> bool {
+        let Some(unique_id) = node.unique_id_if_already_present() else {
+            // This node does not have a unique id, so clearly the devtools inspector
+            // hasn't seen it before.
+            return false;
+        };
+        self.pipeline_state_for(pipeline)
+            .is_some_and(|pipeline_state| pipeline_state.known_nodes.contains_key(&unique_id))
+    }
+
+    fn find_node_by_unique_id(&self, pipeline: PipelineId, node_id: &str) -> Option<DomRoot<Node>> {
+        self.pipeline_state_for(pipeline)?
+            .known_nodes
+            .get(node_id)
+            .map(|node: &Dom<Node>| node.as_rooted())
+    }
+}
 
 #[expect(unsafe_code)]
 pub(crate) fn handle_evaluate_js(
@@ -97,13 +174,63 @@ pub(crate) fn handle_evaluate_js(
     reply.send(result).unwrap();
 }
 
-pub(crate) fn handle_get_event_listener_info(
+pub(crate) fn handle_set_timeline_markers(
     documents: &DocumentCollection,
+    pipeline: PipelineId,
+    marker_types: Vec<TimelineMarkerType>,
+    reply: GenericSender<Option<TimelineMarker>>,
+) {
+    match documents.find_window(pipeline) {
+        None => reply.send(None).unwrap(),
+        Some(window) => window.set_devtools_timeline_markers(marker_types, reply),
+    }
+}
+
+pub(crate) fn handle_drop_timeline_markers(
+    documents: &DocumentCollection,
+    pipeline: PipelineId,
+    marker_types: Vec<TimelineMarkerType>,
+) {
+    if let Some(window) = documents.find_window(pipeline) {
+        window.drop_devtools_timeline_markers(marker_types);
+    }
+}
+
+pub(crate) fn handle_request_animation_frame(
+    documents: &DocumentCollection,
+    id: PipelineId,
+    actor_name: String,
+) {
+    if let Some(doc) = documents.find_document(id) {
+        doc.request_animation_frame(AnimationFrameCallback::DevtoolsFramerateTick { actor_name });
+    }
+}
+
+pub(crate) fn handle_get_css_database(reply: GenericSender<HashMap<String, CssDatabaseProperty>>) {
+    let database: HashMap<_, _> = ENABLED_LONGHAND_PROPERTIES
+        .iter()
+        .map(|l| {
+            (
+                l.name().into(),
+                CssDatabaseProperty {
+                    is_inherited: l.inherited(),
+                    values: vec![], // TODO: Get allowed values for each property
+                    supports: vec![],
+                    subproperties: vec![l.name().into()],
+                },
+            )
+        })
+        .collect();
+    let _ = reply.send(database);
+}
+
+pub(crate) fn handle_get_event_listener_info(
+    state: &DevtoolsState,
     pipeline: PipelineId,
     node_id: &str,
     reply: GenericSender<Vec<EventListenerInfo>>,
 ) {
-    let Some(node) = find_node_by_unique_id(documents, pipeline, node_id) else {
+    let Some(node) = state.find_node_by_unique_id(pipeline, node_id) else {
         reply.send(vec![]).unwrap();
         return;
     };
@@ -115,6 +242,7 @@ pub(crate) fn handle_get_event_listener_info(
 }
 
 pub(crate) fn handle_get_root_node(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     pipeline: PipelineId,
     reply: GenericSender<Option<NodeInfo>>,
@@ -122,11 +250,19 @@ pub(crate) fn handle_get_root_node(
 ) {
     let info = documents
         .find_document(pipeline)
+        .map(DomRoot::upcast::<Node>)
+        .inspect(|node| {
+            state
+                .mut_pipeline_state_for(pipeline)
+                .unwrap()
+                .register_node(node)
+        })
         .map(|document| document.upcast::<Node>().summarize(can_gc));
     reply.send(info).unwrap();
 }
 
 pub(crate) fn handle_get_document_element(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     pipeline: PipelineId,
     reply: GenericSender<Option<NodeInfo>>,
@@ -135,87 +271,81 @@ pub(crate) fn handle_get_document_element(
     let info = documents
         .find_document(pipeline)
         .and_then(|document| document.GetDocumentElement())
+        .inspect(|element| {
+            state
+                .mut_pipeline_state_for(pipeline)
+                .unwrap()
+                .register_node(element.upcast())
+        })
         .map(|element| element.upcast::<Node>().summarize(can_gc));
     reply.send(info).unwrap();
 }
 
-fn find_node_by_unique_id(
-    documents: &DocumentCollection,
+pub(crate) fn handle_get_children(
+    state: &DevtoolsState,
     pipeline: PipelineId,
     node_id: &str,
-) -> Option<DomRoot<Node>> {
-    documents.find_document(pipeline).and_then(|document| {
-        document
-            .upcast::<Node>()
-            .traverse_preorder(ShadowIncluding::Yes)
-            .find(|candidate| candidate.unique_id(pipeline) == node_id)
-    })
-}
-
-pub(crate) fn handle_get_children(
-    documents: &DocumentCollection,
-    pipeline: PipelineId,
-    node_id: String,
     reply: GenericSender<Option<Vec<NodeInfo>>>,
     can_gc: CanGc,
 ) {
-    match find_node_by_unique_id(documents, pipeline, &node_id) {
-        None => reply.send(None).unwrap(),
-        Some(parent) => {
-            let is_whitespace = |node: &NodeInfo| {
-                node.node_type == NodeConstants::TEXT_NODE &&
-                    node.node_value.as_ref().is_none_or(|v| v.trim().is_empty())
-            };
-
-            let inline: Vec<_> = parent
-                .children()
-                .map(|child| {
-                    let window = child.owner_window();
-                    let Some(elem) = child.downcast::<Element>() else {
-                        return false;
-                    };
-                    let computed_style = window.GetComputedStyle(elem, None);
-                    let display = computed_style.Display();
-                    display == "inline"
-                })
-                .collect();
-
-            let mut children = vec![];
-            if let Some(shadow_root) = parent.downcast::<Element>().and_then(Element::shadow_root) {
-                if !shadow_root.is_user_agent_widget() ||
-                    pref!(inspector_show_servo_internal_shadow_roots)
-                {
-                    children.push(shadow_root.upcast::<Node>().summarize(can_gc));
-                }
-            }
-            let children_iter = parent.children().enumerate().filter_map(|(i, child)| {
-                // Filter whitespace only text nodes that are not inline level
-                // https://firefox-source-docs.mozilla.org/devtools-user/page_inspector/how_to/examine_and_edit_html/index.html#whitespace-only-text-nodes
-                let prev_inline = i > 0 && inline[i - 1];
-                let next_inline = i < inline.len() - 1 && inline[i + 1];
-
-                let info = child.summarize(can_gc);
-                if !is_whitespace(&info) {
-                    return Some(info);
-                }
-
-                (prev_inline && next_inline).then_some(info)
-            });
-            children.extend(children_iter);
-
-            reply.send(Some(children)).unwrap();
-        },
+    let Some(parent) = state.find_node_by_unique_id(pipeline, node_id) else {
+        reply.send(None).unwrap();
+        return;
     };
+    let is_whitespace = |node: &NodeInfo| {
+        node.node_type == NodeConstants::TEXT_NODE &&
+            node.node_value.as_ref().is_none_or(|v| v.trim().is_empty())
+    };
+    let mut pipeline_state = state.mut_pipeline_state_for(pipeline).unwrap();
+
+    let inline: Vec<_> = parent
+        .children()
+        .map(|child| {
+            let window = child.owner_window();
+            let Some(elem) = child.downcast::<Element>() else {
+                return false;
+            };
+            let computed_style = window.GetComputedStyle(elem, None);
+            let display = computed_style.Display();
+            display == "inline"
+        })
+        .collect();
+
+    let mut children = vec![];
+    if let Some(shadow_root) = parent.downcast::<Element>().and_then(Element::shadow_root) {
+        if !shadow_root.is_user_agent_widget() || pref!(inspector_show_servo_internal_shadow_roots)
+        {
+            children.push(shadow_root.upcast::<Node>().summarize(can_gc));
+        }
+    }
+    let children_iter = parent.children().enumerate().filter_map(|(i, child)| {
+        // Filter whitespace only text nodes that are not inline level
+        // https://firefox-source-docs.mozilla.org/devtools-user/page_inspector/how_to/examine_and_edit_html/index.html#whitespace-only-text-nodes
+        let prev_inline = i > 0 && inline[i - 1];
+        let next_inline = i < inline.len() - 1 && inline[i + 1];
+        let is_inline_level = prev_inline && next_inline;
+
+        let info = child.summarize(can_gc);
+        if is_whitespace(&info) && !is_inline_level {
+            return None;
+        }
+        pipeline_state.register_node(&child);
+
+        Some(info)
+    });
+    children.extend(children_iter);
+
+    reply.send(Some(children)).unwrap();
 }
 
 pub(crate) fn handle_get_attribute_style(
-    documents: &DocumentCollection,
+    state: &DevtoolsState,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     reply: GenericSender<Option<Vec<NodeStyle>>>,
     can_gc: CanGc,
 ) {
-    let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
+    let node = match state.find_node_by_unique_id(pipeline, node_id) {
         None => return reply.send(None).unwrap(),
         Some(found_node) => found_node,
     };
@@ -242,17 +372,19 @@ pub(crate) fn handle_get_attribute_style(
 }
 
 #[cfg_attr(crown, expect(crown::unrooted_must_root))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_get_stylesheet_style(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     selector: String,
     stylesheet: usize,
     reply: GenericSender<Option<Vec<NodeStyle>>>,
     can_gc: CanGc,
 ) {
     let msg = (|| {
-        let node = find_node_by_unique_id(documents, pipeline, &node_id)?;
+        let node = state.find_node_by_unique_id(pipeline, node_id)?;
 
         let document = documents.find_document(pipeline)?;
         let _realm = enter_realm(document.window());
@@ -290,14 +422,15 @@ pub(crate) fn handle_get_stylesheet_style(
 
 #[cfg_attr(crown, expect(crown::unrooted_must_root))]
 pub(crate) fn handle_get_selectors(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     reply: GenericSender<Option<Vec<(String, usize)>>>,
     can_gc: CanGc,
 ) {
     let msg = (|| {
-        let node = find_node_by_unique_id(documents, pipeline, &node_id)?;
+        let node = state.find_node_by_unique_id(pipeline, node_id)?;
 
         let document = documents.find_document(pipeline)?;
         let _realm = enter_realm(document.window());
@@ -327,12 +460,12 @@ pub(crate) fn handle_get_selectors(
 }
 
 pub(crate) fn handle_get_computed_style(
-    documents: &DocumentCollection,
+    state: &DevtoolsState,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     reply: GenericSender<Option<Vec<NodeStyle>>>,
 ) {
-    let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
+    let node = match state.find_node_by_unique_id(pipeline, node_id) {
         None => return reply.send(None).unwrap(),
         Some(found_node) => found_node,
     };
@@ -358,13 +491,13 @@ pub(crate) fn handle_get_computed_style(
 }
 
 pub(crate) fn handle_get_layout(
-    documents: &DocumentCollection,
+    state: &DevtoolsState,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     reply: GenericSender<Option<(ComputedNodeLayout, AutoMargins)>>,
     can_gc: CanGc,
 ) {
-    let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
+    let node = match state.find_node_by_unique_id(pipeline, node_id) {
         None => return reply.send(None).unwrap(),
         Some(found_node) => found_node,
     };
@@ -404,12 +537,12 @@ pub(crate) fn handle_get_layout(
 }
 
 pub(crate) fn handle_get_xpath(
-    documents: &DocumentCollection,
+    state: &DevtoolsState,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     reply: GenericSender<String>,
 ) {
-    let Some(node) = find_node_by_unique_id(documents, pipeline, &node_id) else {
+    let Some(node) = state.find_node_by_unique_id(pipeline, node_id) else {
         return reply.send(Default::default()).unwrap();
     };
 
@@ -462,23 +595,11 @@ pub(crate) fn handle_get_xpath(
     reply.send(selector).unwrap();
 }
 
-fn determine_auto_margins(node: &Node) -> AutoMargins {
-    let Some(style) = node.style() else {
-        return AutoMargins::default();
-    };
-    let margin = style.get_margin();
-    AutoMargins {
-        top: margin.margin_top.is_auto(),
-        right: margin.margin_right.is_auto(),
-        bottom: margin.margin_bottom.is_auto(),
-        left: margin.margin_left.is_auto(),
-    }
-}
-
 pub(crate) fn handle_modify_attribute(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     modifications: Vec<AttrModification>,
     can_gc: CanGc,
 ) {
@@ -487,7 +608,7 @@ pub(crate) fn handle_modify_attribute(
     };
     let _realm = enter_realm(document.window());
 
-    let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
+    let node = match state.find_node_by_unique_id(pipeline, node_id) {
         None => {
             return warn!(
                 "node id {} for pipeline id {} is not found",
@@ -516,9 +637,10 @@ pub(crate) fn handle_modify_attribute(
 }
 
 pub(crate) fn handle_modify_rule(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     pipeline: PipelineId,
-    node_id: String,
+    node_id: &str,
     modifications: Vec<RuleModification>,
     can_gc: CanGc,
 ) {
@@ -527,7 +649,7 @@ pub(crate) fn handle_modify_rule(
     };
     let _realm = enter_realm(document.window());
 
-    let Some(node) = find_node_by_unique_id(documents, pipeline, &node_id) else {
+    let Some(node) = state.find_node_by_unique_id(pipeline, node_id) else {
         return warn!(
             "Node id {} for pipeline id {} is not found",
             &node_id, &pipeline
@@ -549,67 +671,14 @@ pub(crate) fn handle_modify_rule(
     }
 }
 
-pub(crate) fn handle_wants_live_notifications(global: &GlobalScope, send_notifications: bool) {
-    global.set_devtools_wants_updates(send_notifications);
-}
-
-pub(crate) fn handle_set_timeline_markers(
-    documents: &DocumentCollection,
-    pipeline: PipelineId,
-    marker_types: Vec<TimelineMarkerType>,
-    reply: GenericSender<Option<TimelineMarker>>,
-) {
-    match documents.find_window(pipeline) {
-        None => reply.send(None).unwrap(),
-        Some(window) => window.set_devtools_timeline_markers(marker_types, reply),
-    }
-}
-
-pub(crate) fn handle_drop_timeline_markers(
-    documents: &DocumentCollection,
-    pipeline: PipelineId,
-    marker_types: Vec<TimelineMarkerType>,
-) {
-    if let Some(window) = documents.find_window(pipeline) {
-        window.drop_devtools_timeline_markers(marker_types);
-    }
-}
-
-pub(crate) fn handle_request_animation_frame(
-    documents: &DocumentCollection,
-    id: PipelineId,
-    actor_name: String,
-) {
-    if let Some(doc) = documents.find_document(id) {
-        doc.request_animation_frame(AnimationFrameCallback::DevtoolsFramerateTick { actor_name });
-    }
-}
-
-pub(crate) fn handle_get_css_database(reply: GenericSender<HashMap<String, CssDatabaseProperty>>) {
-    let database: HashMap<_, _> = ENABLED_LONGHAND_PROPERTIES
-        .iter()
-        .map(|l| {
-            (
-                l.name().into(),
-                CssDatabaseProperty {
-                    is_inherited: l.inherited(),
-                    values: vec![], // TODO: Get allowed values for each property
-                    supports: vec![],
-                    subproperties: vec![l.name().into()],
-                },
-            )
-        })
-        .collect();
-    let _ = reply.send(database);
-}
-
 pub(crate) fn handle_highlight_dom_node(
+    state: &DevtoolsState,
     documents: &DocumentCollection,
     id: PipelineId,
-    node_id: Option<String>,
+    node_id: Option<&str>,
 ) {
     let node = node_id.and_then(|node_id| {
-        let node = find_node_by_unique_id(documents, id, &node_id);
+        let node = state.find_node_by_unique_id(id, node_id);
         if node.is_none() {
             log::warn!("Node id {node_id} for pipeline id {id} is not found",);
         }
@@ -618,5 +687,18 @@ pub(crate) fn handle_highlight_dom_node(
 
     if let Some(window) = documents.find_window(id) {
         window.Document().highlight_dom_node(node.as_deref());
+    }
+}
+
+fn determine_auto_margins(node: &Node) -> AutoMargins {
+    let Some(style) = node.style() else {
+        return AutoMargins::default();
+    };
+    let margin = style.get_margin();
+    AutoMargins {
+        top: margin.margin_top.is_auto(),
+        right: margin.margin_right.is_auto(),
+        bottom: margin.margin_bottom.is_auto(),
+        left: margin.margin_left.is_auto(),
     }
 }

@@ -111,6 +111,7 @@ use webgpu_traits::{WebGPUDevice, WebGPUMsg};
 use webrender_api::ExternalScrollId;
 use webrender_api::units::LayoutVector2D;
 
+use crate::devtools::DevtoolsState;
 use crate::document_collection::DocumentCollection;
 use crate::document_loader::DocumentLoader;
 use crate::dom::bindings::cell::DomRefCell;
@@ -138,7 +139,7 @@ use crate::dom::document::{
 use crate::dom::element::Element;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::html::htmliframeelement::{HTMLIFrameElement, IframeContext};
-use crate::dom::node::NodeTraits;
+use crate::dom::node::{Node, NodeTraits};
 use crate::dom::servoparser::{ParserContext, ServoParser};
 use crate::dom::types::DebuggerGlobalScope;
 #[cfg(feature = "webgpu")]
@@ -411,6 +412,7 @@ pub struct ScriptThread {
     /// Whether accessibility is active. If true, each Layout will maintain an accessibility tree
     /// and send accessibility updates to the embedder.
     accessibility_active: Cell<bool>,
+    devtools_state: DevtoolsState,
 }
 
 struct BHMExitSignal {
@@ -1043,6 +1045,7 @@ impl ScriptThread {
                     privileged_urls: state.privileged_urls,
                     this: weak_script_thread.clone(),
                     accessibility_active: Cell::new(state.accessibility_active),
+                    devtools_state: Default::default(),
                 }
             }),
             cx,
@@ -2110,22 +2113,38 @@ impl ScriptThread {
                 None => warn!("Message sent to closed pipeline {}.", id),
             },
             DevtoolScriptControlMsg::GetEventListenerInfo(id, node, reply) => {
-                devtools::handle_get_event_listener_info(&documents, id, &node, reply)
+                devtools::handle_get_event_listener_info(&self.devtools_state, id, &node, reply)
             },
-            DevtoolScriptControlMsg::GetRootNode(id, reply) => {
-                devtools::handle_get_root_node(&documents, id, reply, CanGc::from_cx(cx))
-            },
+            DevtoolScriptControlMsg::GetRootNode(id, reply) => devtools::handle_get_root_node(
+                &self.devtools_state,
+                &documents,
+                id,
+                reply,
+                CanGc::from_cx(cx),
+            ),
             DevtoolScriptControlMsg::GetDocumentElement(id, reply) => {
-                devtools::handle_get_document_element(&documents, id, reply, CanGc::from_cx(cx))
+                devtools::handle_get_document_element(
+                    &self.devtools_state,
+                    &documents,
+                    id,
+                    reply,
+                    CanGc::from_cx(cx),
+                )
             },
             DevtoolScriptControlMsg::GetChildren(id, node_id, reply) => {
-                devtools::handle_get_children(&documents, id, node_id, reply, CanGc::from_cx(cx))
+                devtools::handle_get_children(
+                    &self.devtools_state,
+                    id,
+                    &node_id,
+                    reply,
+                    CanGc::from_cx(cx),
+                )
             },
             DevtoolScriptControlMsg::GetAttributeStyle(id, node_id, reply) => {
                 devtools::handle_get_attribute_style(
-                    &documents,
+                    &self.devtools_state,
                     id,
-                    node_id,
+                    &node_id,
                     reply,
                     CanGc::from_cx(cx),
                 )
@@ -2137,49 +2156,67 @@ impl ScriptThread {
                 stylesheet,
                 reply,
             ) => devtools::handle_get_stylesheet_style(
+                &self.devtools_state,
                 &documents,
                 id,
-                node_id,
+                &node_id,
                 selector,
                 stylesheet,
                 reply,
                 CanGc::from_cx(cx),
             ),
             DevtoolScriptControlMsg::GetSelectors(id, node_id, reply) => {
-                devtools::handle_get_selectors(&documents, id, node_id, reply, CanGc::from_cx(cx))
+                devtools::handle_get_selectors(
+                    &self.devtools_state,
+                    &documents,
+                    id,
+                    &node_id,
+                    reply,
+                    CanGc::from_cx(cx),
+                )
             },
             DevtoolScriptControlMsg::GetComputedStyle(id, node_id, reply) => {
-                devtools::handle_get_computed_style(&documents, id, node_id, reply)
+                devtools::handle_get_computed_style(&self.devtools_state, id, &node_id, reply)
             },
-            DevtoolScriptControlMsg::GetLayout(id, node_id, reply) => {
-                devtools::handle_get_layout(&documents, id, node_id, reply, CanGc::from_cx(cx))
-            },
+            DevtoolScriptControlMsg::GetLayout(id, node_id, reply) => devtools::handle_get_layout(
+                &self.devtools_state,
+                id,
+                &node_id,
+                reply,
+                CanGc::from_cx(cx),
+            ),
             DevtoolScriptControlMsg::GetXPath(id, node_id, reply) => {
-                devtools::handle_get_xpath(&documents, id, node_id, reply)
+                devtools::handle_get_xpath(&self.devtools_state, id, &node_id, reply)
             },
             DevtoolScriptControlMsg::ModifyAttribute(id, node_id, modifications) => {
                 devtools::handle_modify_attribute(
+                    &self.devtools_state,
                     &documents,
                     id,
-                    node_id,
+                    &node_id,
                     modifications,
                     CanGc::from_cx(cx),
                 )
             },
             DevtoolScriptControlMsg::ModifyRule(id, node_id, modifications) => {
                 devtools::handle_modify_rule(
+                    &self.devtools_state,
                     &documents,
                     id,
-                    node_id,
+                    &node_id,
                     modifications,
                     CanGc::from_cx(cx),
                 )
             },
-            DevtoolScriptControlMsg::WantsLiveNotifications(id, to_send) => match documents
-                .find_window(id)
-            {
-                Some(window) => devtools::handle_wants_live_notifications(window.upcast(), to_send),
-                None => warn!("Message sent to closed pipeline {}.", id),
+            DevtoolScriptControlMsg::WantsLiveNotifications(id, to_send) => {
+                match documents.find_window(id) {
+                    Some(window) => {
+                        window
+                            .upcast::<GlobalScope>()
+                            .set_devtools_wants_updates(to_send);
+                    },
+                    None => warn!("Message sent to closed pipeline {}.", id),
+                }
             },
             DevtoolScriptControlMsg::SetTimelineMarkers(id, marker_types, reply) => {
                 devtools::handle_set_timeline_markers(&documents, id, marker_types, reply)
@@ -2203,7 +2240,12 @@ impl ScriptThread {
                 }
             },
             DevtoolScriptControlMsg::HighlightDomNode(id, node_id) => {
-                devtools::handle_highlight_dom_node(&documents, id, node_id)
+                devtools::handle_highlight_dom_node(
+                    &self.devtools_state,
+                    &documents,
+                    id,
+                    node_id.as_deref(),
+                )
             },
             DevtoolScriptControlMsg::Eval(code, id, reply) => {
                 self.debugger_global
@@ -2698,6 +2740,9 @@ impl ScriptThread {
                     MutableOrigin::new(ImmutableOrigin::new_opaque())
                 };
 
+                self.devtools_state
+                    .notify_pipeline_created(new_pipeline_info.new_pipeline_id);
+
                 // Kick off the fetch for the new resource.
                 self.pre_page_load(cx, InProgressLoad::new(new_pipeline_info, origin));
             },
@@ -3152,6 +3197,8 @@ impl ScriptThread {
 
         self.paint_api
             .pipeline_exited(webview_id, pipeline_id, PipelineExitSource::Script);
+
+        self.devtools_state.notify_pipeline_exited(pipeline_id);
 
         debug!("{pipeline_id}: Finished pipeline exit");
     }
@@ -4200,6 +4247,14 @@ impl ScriptThread {
         };
 
         window.maybe_update_visual_viewport(pinch_zoom_infos, can_gc);
+    }
+
+    pub(crate) fn devtools_want_updates_for_node(pipeline: PipelineId, node: &Node) -> bool {
+        with_script_thread(|script_thread| {
+            script_thread
+                .devtools_state
+                .wants_updates_for_node(pipeline, node)
+        })
     }
 }
 
