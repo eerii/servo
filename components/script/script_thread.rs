@@ -42,8 +42,8 @@ use canvas_traits::webgl::WebGLPipeline;
 use chrono::{DateTime, Local};
 use constellation_traits::{
     JsEvalResult, LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
-    ScriptToConstellationChan, ScriptToConstellationMessage, StructuredSerializedData,
-    WindowSizeType,
+    ScriptToConstellationChan, ScriptToConstellationMessage, ScrollStateUpdate,
+    StructuredSerializedData, WindowSizeType,
 };
 use crossbeam_channel::unbounded;
 use data_url::mime::Mime;
@@ -108,8 +108,6 @@ use timers::{TimerEventRequest, TimerId, TimerScheduler};
 use url::Position;
 #[cfg(feature = "webgpu")]
 use webgpu_traits::{WebGPUDevice, WebGPUMsg};
-use webrender_api::ExternalScrollId;
-use webrender_api::units::LayoutVector2D;
 
 use crate::devtools::DevtoolsState;
 use crate::document_collection::DocumentCollection;
@@ -1975,11 +1973,7 @@ impl ScriptThread {
         }
     }
 
-    fn handle_set_scroll_states(
-        &self,
-        pipeline_id: PipelineId,
-        scroll_states: FxHashMap<ExternalScrollId, LayoutVector2D>,
-    ) {
+    fn handle_set_scroll_states(&self, pipeline_id: PipelineId, scroll_states: ScrollStateUpdate) {
         let Some(window) = self.documents.borrow().find_window(pipeline_id) else {
             warn!("Received scroll states for closed pipeline {pipeline_id}");
             return;
@@ -1991,9 +1985,14 @@ impl ScriptThread {
             || {
                 window
                     .layout_mut()
-                    .set_scroll_offsets_from_renderer(&scroll_states);
+                    .set_scroll_offsets_from_renderer(&scroll_states.offsets);
             },
-        )
+        );
+
+        window
+            .Document()
+            .event_handler()
+            .handle_embedder_scroll_event(scroll_states.scrolled_node);
     }
 
     #[cfg(feature = "webgpu")]

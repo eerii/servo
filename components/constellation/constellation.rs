@@ -119,7 +119,7 @@ use constellation_traits::{
     EmbedderToConstellationMessage, IFrameLoadInfo, IFrameLoadInfoWithData, IFrameSizeMsg, Job,
     LoadData, LogEntry, MessagePortMsg, NavigationHistoryBehavior, PaintMetricEvent,
     PortMessageTask, PortTransferInfo, SWManagerMsg, SWManagerSenders, ScreenshotReadinessResponse,
-    ScriptToConstellationMessage, ServiceWorkerManagerFactory, ServiceWorkerMsg,
+    ScriptToConstellationMessage, ScrollStateUpdate, ServiceWorkerManagerFactory, ServiceWorkerMsg,
     StructuredSerializedData, TraversalDirection, UserContentManagerAction, WindowSizeType,
 };
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
@@ -175,8 +175,6 @@ use style::global_style_data::StyleThreadPool;
 use webgpu::canvas_context::WebGpuExternalImageMap;
 #[cfg(feature = "webgpu")]
 use webgpu_traits::{WebGPU, WebGPURequest};
-use webrender_api::ExternalScrollId;
-use webrender_api::units::LayoutVector2D;
 
 use crate::broadcastchannel::BroadcastChannels;
 use crate::browsingcontext::{
@@ -5651,11 +5649,7 @@ where
     }
 
     #[servo_tracing::instrument(skip_all)]
-    fn handle_set_scroll_states(
-        &self,
-        pipeline_id: PipelineId,
-        scroll_states: FxHashMap<ExternalScrollId, LayoutVector2D>,
-    ) {
+    fn handle_set_scroll_states(&self, pipeline_id: PipelineId, scroll_states: ScrollStateUpdate) {
         let Some(pipeline) = self.pipelines.get(&pipeline_id) else {
             warn!("Discarding scroll offset update for unknown pipeline");
             return;
