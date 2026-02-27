@@ -140,6 +140,9 @@ addEventListener("getPossibleBreakpoints", event => {
 });
 
 function handlePauseAndRespond(frame, pauseReason) {
+    dbg.onEnterFrame = undefined;
+    clearSteppingHooks();
+    
     // Get the pipeline ID for this debuggee
     const pipelineId = debuggeesToPipelineIds.get(frame.script.global);
     if (!pipelineId) {
@@ -204,10 +207,103 @@ addEventListener("setBreakpoint", event => {
 
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Frame.html>
 addEventListener("interrupt", event => {
-    dbg.onEnterFrame = function(frame) {
-        dbg.onEnterFrame = undefined;
-        handlePauseAndRespond(frame, { type_:PAUSE_REASONS.INTERRUPTED, onNext: true});
-    };
+    dbg.onEnterFrame = (frame) => handlePauseAndRespond(
+        frame,
+        { type_: PAUSE_REASONS.INTERRUPTED, onNext: true }
+    );
+});
+
+function makeSteppingHooks(steppingType, startFrame) {
+    return {
+        onEnterFrame: (frame) => {
+            const { onStep, onPop } = makeSteppingHooks("next", frame);
+            console.log("-------- onEnterFrame");
+            frame.onStep = onStep;
+            frame.onPop = onPop;
+            return undefined;
+        },
+        onStep: () => {
+            console.log("-------- onStep");
+            const meta = startFrame.script.getOffsetMetadata(startFrame.offset);
+            if (meta.isBreakpoint && meta.isStepStart) {
+                return handlePauseAndRespond(startFrame, { type_: PAUSE_REASONS.RESUME_LIMIT });
+            }
+        },
+        onPop: () => {
+            console.log("-------- onPop");
+            return undefined;
+        },
+    }
+}
+
+function clearSteppingHooks() {
+    let frame = this.youngestFrame;
+    if (frame?.onStack) {
+        while (frame) {
+            frame.onStep = undefined;
+            frame.onPop = undefined;
+            frame = frame.older;
+        }
+    }
+}
+
+function getNextStepFrame(frame) {
+    const endOfFrame = frame.reportedPop;
+    const stepFrame = endOfFrame
+      ? frame.older // TODO: get async parent frame
+      : frame;
+    if (!stepFrame || !stepFrame.script) {
+      return null;
+    }
+    return stepFrame;
+}
+
+// "step": Step in
+// "finish": Step out
+// "next": Step over
+// We are getting this error when step in is not available:
+// Error: DebuggerContextError: Thread moved to another location
+// This is because of the incorrect "frames" reply
+addEventListener("resume", event => {
+    const {resumeLimitType, frameActorID} = event;
+    if (resumeLimitType) {
+        // TODO: This is a workaround since the string comes with quotes, remove in the future
+        let steppingType = resumeLimitType.slice(1, -1);
+
+        const frame = frameActorsToFrames.get(frameActorID);
+
+        if (steppingType === "finish" && frame.reportedPop) {
+          steppingType = "next";
+        }
+
+        const stepFrame = getNextStepFrame(frame);
+        if (!stepFrame) {
+            steppingType = "step";
+        }
+
+        const { onEnterFrame, onPop, onStep } = makeSteppingHooks(
+            steppingType,
+            frame,
+        );
+
+        if (steppingType === "step") {
+            dbg.onEnterFrame = onEnterFrame;
+        }
+
+        if (stepFrame) {
+            switch (steppingType) {
+                case "step":
+                case "next":
+                    if (stepFrame.script) {
+                        stepFrame.onStep = onStep;
+                    }
+                // case "finish":
+                //   stepFrame.onStep = stepFrame.onStep;
+            }
+        }
+    } else {
+        clearSteppingHooks();
+    }
 });
 
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Script.html#clearbreakpoint-handler-offset>
