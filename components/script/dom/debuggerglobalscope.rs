@@ -32,7 +32,7 @@ use storage_traits::StorageThreads;
 
 use crate::dom::bindings::codegen::Bindings::DebuggerGlobalScopeBinding;
 use crate::dom::bindings::codegen::Bindings::DebuggerInterruptEventBinding::{
-    FrameInfo, PauseReason,
+    FrameInfo, FrameOffset, PauseReason,
 };
 use crate::dom::bindings::error::report_pending_exception;
 use crate::dom::bindings::inheritance::Castable;
@@ -456,12 +456,18 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
     fn PauseAndRespond(
         &self,
         pipeline_id: &PipelineIdInit,
-        frame_actor_id: DOMString,
+        frame_offset: &FrameOffset,
         pause_reason: &PauseReason,
     ) {
         let pipeline_id = PipelineId {
             namespace_id: PipelineNamespaceId(pipeline_id.namespaceId),
             index: Index::new(pipeline_id.index).expect("`pipelineId.index` must not be zero"),
+        };
+
+        let frame_offset = devtools_traits::FrameOffset {
+            actor: frame_offset.frameActorId.clone().into(),
+            column: frame_offset.column,
+            line: frame_offset.line,
         };
 
         let pause_reason = devtools_traits::PauseReason {
@@ -470,11 +476,8 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         };
 
         if let Some(chan) = self.upcast::<GlobalScope>().devtools_chan() {
-            let msg = ScriptToDevtoolsControlMsg::DebuggerPause(
-                pipeline_id,
-                frame_actor_id.into(),
-                pause_reason,
-            );
+            let msg =
+                ScriptToDevtoolsControlMsg::DebuggerPause(pipeline_id, frame_offset, pause_reason);
             let _ = chan.send(msg);
         }
 
@@ -497,9 +500,7 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         let (tx, rx) = channel::<String>().unwrap();
 
         let frame = devtools_traits::FrameInfo {
-            column: result.column,
             display_name: result.displayName.clone().into(),
-            line: result.line,
             on_stack: result.onStack,
             oldest: result.oldest,
             terminated: result.terminated,

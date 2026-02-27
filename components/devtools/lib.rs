@@ -25,8 +25,8 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use devtools_traits::{
     ChromeToDevtoolsControlMsg, ConsoleLogLevel, ConsoleMessage, ConsoleMessageFields,
     DevtoolScriptControlMsg, DevtoolsControlMsg, DevtoolsPageInfo, DomMutation, FrameInfo,
-    NavigationState, NetworkEvent, PauseReason, ScriptToDevtoolsControlMsg, SourceInfo, WorkerId,
-    get_time_stamp,
+    FrameOffset, NavigationState, NetworkEvent, PauseReason, ScriptToDevtoolsControlMsg,
+    SourceInfo, WorkerId, get_time_stamp,
 };
 use embedder_traits::{AllowOrDeny, EmbedderMsg, EmbedderProxy};
 use log::{trace, warn};
@@ -39,7 +39,7 @@ use rustc_hash::FxHashMap;
 use serde::Serialize;
 use servo_config::pref;
 
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::console::{ConsoleActor, ConsoleResource, DevtoolsConsoleMessage, Root};
 use crate::actors::frame::FrameActor;
@@ -366,9 +366,9 @@ impl DevtoolsInstance {
                 },
                 DevtoolsControlMsg::FromScript(ScriptToDevtoolsControlMsg::DebuggerPause(
                     pipeline_id,
-                    frame_actor_id,
+                    frame_offset,
                     pause_reason,
-                )) => self.handle_debugger_pause(pipeline_id, frame_actor_id, pause_reason),
+                )) => self.handle_debugger_pause(pipeline_id, frame_offset, pause_reason),
                 DevtoolsControlMsg::FromScript(ScriptToDevtoolsControlMsg::CreateFrameActor(
                     result_sender,
                     pipeline_id,
@@ -761,7 +761,7 @@ impl DevtoolsInstance {
     fn handle_debugger_pause(
         &mut self,
         pipeline_id: PipelineId,
-        frame_actor_id: String,
+        frame_offset: FrameOffset,
         pause_reason: PauseReason,
     ) {
         let actors = &self.registry;
@@ -782,11 +782,14 @@ impl DevtoolsInstance {
             name: pause.clone(),
         });
 
+        let frame = actors.find::<FrameActor>(&frame_offset.actor);
+        frame.set_offset(frame_offset.column, frame_offset.line);
+
         let msg = ThreadInterruptedReply {
             from: thread.name(),
             type_: "paused".to_owned(),
             actor: pause,
-            frame: actors.encode::<FrameActor, _>(&frame_actor_id),
+            frame: frame.encode(actors),
             why: pause_reason,
         };
 

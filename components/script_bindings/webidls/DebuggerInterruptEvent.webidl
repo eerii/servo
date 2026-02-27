@@ -10,7 +10,7 @@ interface DebuggerInterruptEvent : Event {};
 partial interface DebuggerGlobalScope {
     undefined pauseAndRespond(
         PipelineIdInit pipelineId,
-        DOMString frameActorId,
+        FrameOffset frameOffset,
         PauseReason pauseReason);
 
     DOMString? registerFrameActor(
@@ -24,12 +24,16 @@ dictionary PauseReason {
 };
 
 dictionary FrameInfo {
-    required unsigned long column;
     required DOMString displayName;
-    required unsigned long line;
     required boolean onStack;
     required boolean oldest;
     required boolean terminated;
     required DOMString type_;
     required DOMString url;
+};
+
+dictionary FrameOffset {
+    required DOMString frameActorId;
+    required unsigned long column;
+    required unsigned long line;
 };

@@ -139,7 +139,7 @@ addEventListener("getPossibleBreakpoints", event => {
     getPossibleBreakpointsResult(event, result);
 });
 
-function handlePauseAndRespond(frame, pause_reason) {
+function handlePauseAndRespond(frame, pauseReason) {
     // Get the pipeline ID for this debuggee
     const pipelineId = debuggeesToPipelineIds.get(frame.script.global);
     if (!pipelineId) {
@@ -147,33 +147,41 @@ function handlePauseAndRespond(frame, pause_reason) {
         return undefined;
     }
 
+    let frameActorId = findKeyByValue(frameActorsToFrames, frame);
+    if (!frameActorId) {
+        // TODO: Check if we already have an actor for this frame
+        frameActorId = registerFrameActor(pipelineId, {
+            // TODO: Some properties throw if terminated is true
+            // TODO: arguments: frame.arguments,
+            displayName: frame.script.displayName,
+            onStack: frame.onStack,
+            oldest: frame.older == null,
+            terminated: frame.terminated,
+            type_: frame.type,
+            url: frame.script.url,
+        });
+
+        if (!frameActorId) {
+            console.error("[debugger] Couldn't create frame");
+            return undefined;
+        }
+        frameActorsToFrames.set(frameActorId, frame);
+    }
+
     // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Script.html#getoffsetmetadata-offset>
     const offset = frame.offset;
     const offsetMetadata = frame.script.getOffsetMetadata(offset);
-
-    const frameActorId = registerFrameActor(pipelineId, {
-        // TODO: Some properties throw if terminated is true
-        // TODO: arguments: frame.arguments,
+    const frameOffset = {
+        frameActorId,
         column: offsetMetadata.columnNumber - 1,
-        displayName: frame.script.displayName,
-        line: offsetMetadata.lineNumber,
-        onStack: frame.onStack,
-        oldest: frame.older == null,
-        terminated: frame.terminated,
-        type_: frame.type,
-        url: frame.script.url,
-    });
-
-    if (!frameActorId) {
-        console.error("[debugger] Couldn't create frame");
-        return undefined;
-    }
-    frameActorsToFrames.set(frameActorId, frame);
+        line: offsetMetadata.lineNumber
+    };
 
     // Notify devtools and enter pause loop. This blocks until Resume.
-    pauseAndRespond(pipelineId,
-        frameActorId,
-        pause_reason,
+    pauseAndRespond(
+        pipelineId,
+        frameOffset,
+        pauseReason
     );
 
     // <https://firefox-source-docs.mozilla.org/js/Debugger/Conventions.html#resumption-values>
