@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use devtools_traits::EnvironmentInfo;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -9,22 +10,22 @@ use serde_json::{Map, Value};
 use crate::actor::{Actor, ActorEncode, ActorRegistry};
 use crate::actors::object::ObjectActorMsg;
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum EnvironmentType {
-    Function,
-    _Block,
-    _Object,
-}
+// #[derive(Serialize)]
+// #[serde(rename_all = "camelCase")]
+// pub enum EnvironmentType {
+//     Function,
+//     _Block,
+//     _Object,
+// }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum EnvironmentScope {
-    Function,
-    _Global,
-}
+// #[derive(Serialize)]
+// #[serde(rename_all = "camelCase")]
+// pub enum EnvironmentScope {
+//     Function,
+//     _Global,
+// }
 
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 struct EnvironmentBindings {
     arguments: Vec<Value>,
     variables: Map<String, Value>,
@@ -41,8 +42,9 @@ struct EnvironmentFunction {
 pub(crate) struct EnvironmentActorMsg {
     actor: String,
     #[serde(rename = "type")]
-    type_: EnvironmentType,
-    scope_kind: EnvironmentScope,
+    type_: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<Box<EnvironmentActorMsg>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,13 +62,31 @@ pub(crate) struct EnvironmentActorMsg {
 /// <https://searchfox.org/firefox-main/source/devtools/server/actors/environment.js>
 #[derive(MallocSizeOf)]
 pub(crate) struct EnvironmentActor {
-    pub name: String,
-    pub parent: Option<String>,
+    name: String,
+    environment: EnvironmentInfo,
+    parent: Option<String>,
 }
 
 impl Actor for EnvironmentActor {
     fn name(&self) -> String {
         self.name.clone()
+    }
+}
+
+impl EnvironmentActor {
+    pub fn register(
+        registry: &ActorRegistry,
+        environment: EnvironmentInfo,
+        parent: Option<String>,
+    ) -> String {
+        let name = registry.new_name::<Self>();
+        let actor = Self {
+            name: name.clone(),
+            parent,
+            environment,
+        };
+        registry.register(actor);
+        name
     }
 }
 
@@ -80,11 +100,29 @@ impl ActorEncode<EnvironmentActorMsg> for EnvironmentActor {
         // TODO: Change hardcoded values.
         EnvironmentActorMsg {
             actor: self.name(),
-            type_: EnvironmentType::Function,
-            scope_kind: EnvironmentScope::Function,
+            type_: self.environment.type_.clone(),
+            scope_kind: self.environment.scope_kind.clone(),
             parent,
-            bindings: None,
-            function: None,
+            bindings: (self.environment.type_ == "function" || self.environment.type_ == "block")
+                .then_some(EnvironmentBindings {
+                    arguments: vec![],
+                    variables: serde_json::json!({
+                    "a": {
+                       "enumerable":true,
+                       "configurable":false,
+                       "value":{
+                          "type":"null",
+                          "uninitialized":true
+                       },
+                       "writable":false
+                    }})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                }),
+            function: (self.environment.type_ == "function").then_some(EnvironmentFunction {
+                display_name: "testFunction".into(),
+            }),
             object: None,
         }
     }

@@ -29,6 +29,7 @@ use script_bindings::str::DOMString;
 use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
 use storage_traits::StorageThreads;
 
+use crate::dom::bindings::codegen::Bindings::DebuggerFrameEventBinding::EnvironmentInfo;
 use crate::dom::bindings::codegen::Bindings::DebuggerGlobalScopeBinding;
 use crate::dom::bindings::codegen::Bindings::DebuggerInterruptEventBinding::{
     FrameInfo, FrameOffset, PauseReason,
@@ -38,6 +39,7 @@ use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::utils::define_all_exposed_interfaces;
 use crate::dom::debuggerclearbreakpointevent::DebuggerClearBreakpointEvent;
 use crate::dom::debuggerframeevent::DebuggerFrameEvent;
+use crate::dom::debuggergetenvironmentevent::DebuggerGetEnvironmentEvent;
 use crate::dom::debuggerinterruptevent::DebuggerInterruptEvent;
 use crate::dom::debuggerresumeevent::DebuggerResumeEvent;
 use crate::dom::debuggersetbreakpointevent::DebuggerSetBreakpointEvent;
@@ -66,6 +68,8 @@ pub(crate) struct DebuggerGlobalScope {
     eval_result_sender: RefCell<Option<GenericSender<EvaluateJSReply>>>,
     #[no_trace]
     get_list_frame_result_sender: RefCell<Option<GenericSender<Vec<String>>>>,
+    #[no_trace]
+    get_environment_result_sender: RefCell<Option<GenericSender<String>>>,
 }
 
 impl DebuggerGlobalScope {
@@ -113,6 +117,7 @@ impl DebuggerGlobalScope {
             devtools_to_script_sender,
             get_possible_breakpoints_result_sender: RefCell::new(None),
             get_list_frame_result_sender: RefCell::new(None),
+            get_environment_result_sender: RefCell::new(None),
             eval_result_sender: RefCell::new(None),
         });
         let global = DebuggerGlobalScopeBinding::Wrap::<crate::DomTypeHolder>(cx, global);
@@ -277,6 +282,29 @@ impl DebuggerGlobalScope {
         assert!(
             event.fire(self.upcast(), can_gc),
             "Guaranteed by DebuggerFrameEvent::new"
+        );
+    }
+
+    pub(crate) fn fire_get_environment(
+        &self,
+        frame_actor_id: String,
+        result_sender: GenericSender<String>,
+        can_gc: CanGc,
+    ) {
+        assert!(
+            self.get_environment_result_sender
+                .replace(Some(result_sender))
+                .is_none()
+        );
+        let _realm = enter_realm(self);
+        let event = DomRoot::upcast::<Event>(DebuggerGetEnvironmentEvent::new(
+            self.upcast(),
+            frame_actor_id.into(),
+            can_gc,
+        ));
+        assert!(
+            event.fire(self.upcast(), can_gc),
+            "Guaranteed by DebuggerGetEnvironmentEvent::new"
         );
     }
 
@@ -566,5 +594,38 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
             .expect("Guaranteed by Self::fire_list_frames()");
 
         let _ = sender.send(frame_actor_ids.into_iter().map(|i| i.into()).collect());
+    }
+
+    fn RegisterEnvironmentActor(
+        &self,
+        environment: &EnvironmentInfo,
+        parent: Option<DOMString>,
+    ) -> Option<DOMString> {
+        let chan = self.upcast::<GlobalScope>().devtools_chan()?;
+        let (tx, rx) = channel::<String>().unwrap();
+
+        let environment = devtools_traits::EnvironmentInfo {
+            type_: environment.type_.clone().into(),
+            scope_kind: environment.scopeKind.clone().map(String::from),
+            optimized_out: environment.optimizedOut,
+        };
+
+        let msg = ScriptToDevtoolsControlMsg::CreateEnvironmentActor(
+            tx,
+            environment,
+            parent.map(String::from),
+        );
+        let _ = chan.send(msg);
+
+        rx.recv().ok().map(DOMString::from)
+    }
+
+    fn GetEnvironmentResult(&self, environment_actor_id: DOMString) {
+        let sender = self
+            .get_environment_result_sender
+            .take()
+            .expect("Guaranteed by Self::fire_get_environment()");
+
+        let _ = sender.send(environment_actor_id.into());
     }
 }

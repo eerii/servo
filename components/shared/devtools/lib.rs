@@ -137,6 +137,9 @@ pub enum ScriptToDevtoolsControlMsg {
 
     /// Get frame information from script
     CreateFrameActor(GenericSender<String>, PipelineId, FrameInfo),
+
+    /// Get environment information from script
+    CreateEnvironmentActor(GenericSender<String>, EnvironmentInfo, Option<String>),
 }
 
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
@@ -363,6 +366,7 @@ pub enum DevtoolScriptControlMsg {
     Interrupt,
     Resume(Option<String>, Option<String>),
     ListFrames(PipelineId, u32, u32, GenericSender<Vec<String>>),
+    GetEnvironment(String, GenericSender<String>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, MallocSizeOf)]
@@ -604,6 +608,14 @@ pub struct FrameInfo {
     #[serde(rename = "type")]
     pub type_: String,
     pub url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
+pub struct EnvironmentInfo {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub scope_kind: Option<String>,
+    pub optimized_out: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

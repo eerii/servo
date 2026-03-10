@@ -11,10 +11,26 @@ interface DebuggerFrameEvent : Event {
     readonly attribute unsigned long count;
 };
 
+[Exposed=DebuggerGlobalScope]
+interface DebuggerGetEnvironmentEvent : Event {
+    readonly attribute DOMString frameActorId;
+};
+
 partial interface DebuggerGlobalScope {
     undefined listFramesResult(
         sequence<DOMString> frameActorId
     );
+    undefined getEnvironmentResult(
+        DOMString environmentActorId
+    );
+    DOMString? registerEnvironmentActor(
+        EnvironmentInfo result,
+        DOMString? parent
+    );
 };
 
-
+dictionary EnvironmentInfo {
+    required DOMString type_;
+    DOMString scopeKind;
+    boolean optimizedOut;
+};
