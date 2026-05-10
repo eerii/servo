@@ -1,8 +1,3 @@
-if ("dbg" in this) {
-    throw new Error("Debugger script must not run more than once!");
-}
-
-const dbg = new Debugger;
 const debuggeesToPipelineIds = new Map;
 const debuggeesToWorkerIds = new Map;
 const sourceIdsToScripts = new Map;

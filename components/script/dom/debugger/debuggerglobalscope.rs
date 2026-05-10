@@ -11,6 +11,9 @@ use dom_struct::dom_struct;
 use embedder_traits::ScriptToEmbedderChan;
 use embedder_traits::resources::{self, Resource};
 use js::context::JSContext;
+use js::gc::RootedTraceableBox;
+use js::jsapi::{Heap, JSObject};
+use js::jsval::UndefinedValue;
 use js::rust::wrappers2::JS_DefineDebuggerObject;
 use net_traits::ResourceThreads;
 use net_traits::response::HttpsState;
@@ -75,6 +78,8 @@ pub(crate) struct DebuggerGlobalScope {
     get_list_frame_result_sender: RefCell<Option<GenericSender<Vec<String>>>>,
     #[no_trace]
     get_environment_result_sender: RefCell<Option<GenericSender<String>>>,
+    #[ignore_malloc_size_of = "mozjs"]
+    debugger: RootedTraceableBox<Heap<*mut JSObject>>,
 }
 
 impl DebuggerGlobalScope {
@@ -125,6 +130,7 @@ impl DebuggerGlobalScope {
             get_list_frame_result_sender: RefCell::new(None),
             get_environment_result_sender: RefCell::new(None),
             eval_result_sender: RefCell::new(None),
+            debugger: RootedTraceableBox::new(Heap::default()),
         });
         let global = DebuggerGlobalScopeBinding::Wrap::<crate::DomTypeHolder>(cx, global);
 
@@ -135,6 +141,19 @@ impl DebuggerGlobalScope {
             // Invariants: `obj` must be a handle to a JS global object.
             JS_DefineDebuggerObject(&mut realm, global.global_scope.reflector().get_jsobject())
         });
+
+        rooted!(&in(realm) let mut dbg = UndefinedValue());
+        let _ = global.global_scope.evaluate_js_on_global(
+            &mut realm,
+            "globalThis.dbg = new Debugger()".into(),
+            "",
+            None,
+            Some(dbg.handle_mut()),
+        );
+        if dbg.is_object() {
+            global.debugger.set(dbg.to_object());
+            println!("-------------- {:?}", global.debugger.get());
+        }
 
         global
     }
