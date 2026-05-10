@@ -2245,15 +2245,12 @@ impl ScriptThread {
                     .fire_eval(cx, code.into(), id, None, frame_actor_id, reply);
             },
             DevtoolScriptControlMsg::GetPossibleBreakpoints(spidermonkey_id, result_sender) => {
-                self.debugger_global.fire_get_possible_breakpoints(
-                    cx,
-                    spidermonkey_id,
-                    result_sender,
-                );
+                self.debugger_global
+                    .get_possible_breakpoints(cx, spidermonkey_id, result_sender);
             },
             DevtoolScriptControlMsg::SetBreakpoint(spidermonkey_id, script_id, offset) => {
                 self.debugger_global
-                    .fire_set_breakpoint(cx, spidermonkey_id, script_id, offset);
+                    .set_breakpoint(cx, spidermonkey_id, script_id, offset);
             },
             DevtoolScriptControlMsg::ClearBreakpoint(spidermonkey_id, script_id, offset) => {
                 self.debugger_global

@@ -13,9 +13,10 @@ use devtools_traits::{
 };
 use embedder_traits::EmbedderMsg;
 use js::conversions::jsstr_to_string;
+use js::gc::RootedGuard;
 use js::jsapi::{
     self, ESClass, JS_GetFunctionArity, JS_GetFunctionDisplayId, JS_GetFunctionId,
-    JS_ValueToFunction, PropertyDescriptor,
+    JS_ValueToFunction, PropertyDescriptor, Value,
 };
 use js::jsval::{Int32Value, UndefinedValue};
 use js::rust::wrappers::{
@@ -548,7 +549,18 @@ fn maybe_stringify_dom_object(cx: JSContext, value: HandleValue) -> Option<DOMSt
     };
     let mut repr = format!("{} ", class_name);
     rooted!(in(*cx) let mut value = value.get());
+    if json_stringify(cx, value, &mut repr) {
+        return Some(repr.into());
+    }
+    Some("<error converting DOM object to string>".into())
+}
 
+#[expect(unsafe_code)]
+pub(crate) fn json_stringify(
+    cx: JSContext,
+    mut value: RootedGuard<'_, Value>,
+    output: &mut String,
+) -> bool {
     #[expect(unsafe_code)]
     unsafe extern "C" fn stringified(
         string: *const u16,
@@ -562,20 +574,16 @@ fn maybe_stringify_dom_object(cx: JSContext, value: HandleValue) -> Option<DOMSt
     }
 
     rooted!(in(*cx) let space = Int32Value(2));
-    let stringify_result = unsafe {
+    unsafe {
         JS_Stringify(
             *cx,
             value.handle_mut(),
             HandleObject::null(),
             space.handle(),
             Some(stringified),
-            &mut repr as *mut String as *mut _,
+            output as *mut String as *mut _,
         )
-    };
-    if !stringify_result {
-        return Some("<error converting DOM object to string>".into());
     }
-    Some(repr.into())
 }
 
 /// Apply sprintf-style substitutions to console format arguments per the WHATWG Console spec.

@@ -5,12 +5,15 @@
 use std::cell::RefCell;
 
 use devtools_traits::{
-    DevtoolScriptControlMsg, EvaluateJSReply, ScriptToDevtoolsControlMsg, SourceInfo, WorkerId,
+    DevtoolScriptControlMsg, EvaluateJSReply, RecommendedBreakpointLocation,
+    ScriptToDevtoolsControlMsg, SourceInfo, WorkerId,
 };
 use dom_struct::dom_struct;
 use embedder_traits::ScriptToEmbedderChan;
 use embedder_traits::resources::{self, Resource};
 use js::context::JSContext;
+use js::jsapi::{HandleValueArray, JS_CallFunctionName};
+use js::jsval::{UInt32Value, UndefinedValue};
 use js::rust::wrappers2::JS_DefineDebuggerObject;
 use net_traits::ResourceThreads;
 use net_traits::response::HttpsState;
@@ -34,7 +37,6 @@ use crate::dom::bindings::codegen::Bindings::DebuggerInterruptEventBinding::{
 use crate::dom::bindings::codegen::GenericBindings::DebuggerEvalEventBinding::{
     EvalResult, PropertyDescriptor,
 };
-use crate::dom::bindings::codegen::GenericBindings::DebuggerGetPossibleBreakpointsEventBinding::RecommendedBreakpointLocation;
 use crate::dom::bindings::codegen::GenericBindings::DebuggerGlobalScopeBinding::{
     DebuggerGlobalScopeMethods, NotifyNewSource, PipelineIdInit,
 };
@@ -42,16 +44,14 @@ use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::bindings::utils::define_all_exposed_interfaces;
+use crate::dom::console::json_stringify;
 use crate::dom::debugger::debuggerclearbreakpointevent::DebuggerClearBreakpointEvent;
 use crate::dom::debugger::debuggerframeevent::DebuggerFrameEvent;
 use crate::dom::debugger::debuggergetenvironmentevent::DebuggerGetEnvironmentEvent;
 use crate::dom::debugger::debuggerinterruptevent::DebuggerInterruptEvent;
 use crate::dom::debugger::debuggerresumeevent::DebuggerResumeEvent;
-use crate::dom::debugger::debuggersetbreakpointevent::DebuggerSetBreakpointEvent;
 use crate::dom::globalscope::GlobalScope;
-use crate::dom::types::{
-    DebuggerAddDebuggeeEvent, DebuggerEvalEvent, DebuggerGetPossibleBreakpointsEvent, Event,
-};
+use crate::dom::types::{DebuggerAddDebuggeeEvent, DebuggerEvalEvent, Event};
 #[cfg(feature = "webgpu")]
 use crate::dom::webgpu::identityhub::IdentityHub;
 use crate::realms::{enter_auto_realm, enter_realm};
@@ -66,9 +66,6 @@ pub(crate) struct DebuggerGlobalScope {
     global_scope: GlobalScope,
     #[no_trace]
     devtools_to_script_sender: GenericSender<DevtoolScriptControlMsg>,
-    #[no_trace]
-    get_possible_breakpoints_result_sender:
-        RefCell<Option<GenericSender<Vec<devtools_traits::RecommendedBreakpointLocation>>>>,
     #[no_trace]
     eval_result_sender: RefCell<Option<GenericSender<EvaluateJSReply>>>,
     #[no_trace]
@@ -121,7 +118,6 @@ impl DebuggerGlobalScope {
                 HttpsState::None,
             ),
             devtools_to_script_sender,
-            get_possible_breakpoints_result_sender: RefCell::new(None),
             get_list_frame_result_sender: RefCell::new(None),
             get_environment_result_sender: RefCell::new(None),
             eval_result_sender: RefCell::new(None),
@@ -218,47 +214,67 @@ impl DebuggerGlobalScope {
         );
     }
 
-    pub(crate) fn fire_get_possible_breakpoints(
+    #[allow(unsafe_code)]
+    pub(crate) fn get_possible_breakpoints(
         &self,
         cx: &mut JSContext,
         spidermonkey_id: u32,
-        result_sender: GenericSender<Vec<devtools_traits::RecommendedBreakpointLocation>>,
+        result_sender: GenericSender<Vec<RecommendedBreakpointLocation>>,
     ) {
-        assert!(
-            self.get_possible_breakpoints_result_sender
-                .replace(Some(result_sender))
-                .is_none()
-        );
-        let _realm = enter_realm(self);
-        let event = DomRoot::upcast::<Event>(DebuggerGetPossibleBreakpointsEvent::new(
-            self.upcast(),
-            spidermonkey_id,
-            CanGc::from_cx(cx),
-        ));
-        assert!(
-            event.fire(self.upcast(), CanGc::from_cx(cx)),
-            "Guaranteed by DebuggerGetPossibleBreakpointsEvent::new"
-        );
+        let mut realm = enter_auto_realm(cx, self);
+        let cx = &mut realm.current_realm();
+        let global_obj = self.global_scope.reflector().get_jsobject();
+
+        rooted!(&in(cx) let mut rval = UndefinedValue());
+        rooted_vec!(let mut argv);
+        argv.push(UInt32Value(spidermonkey_id));
+        let args = HandleValueArray::from(&argv);
+
+        unsafe {
+            JS_CallFunctionName(
+                cx.raw_cx(),
+                global_obj.into(),
+                c"getPossibleBreakpoints".as_ptr(),
+                &args,
+                rval.handle_mut().into(),
+            );
+        }
+
+        let mut json_value = String::new();
+        let _ = json_stringify(cx.into(), rval, &mut json_value);
+        let result: Vec<RecommendedBreakpointLocation> =
+            serde_json::from_str(&json_value).unwrap_or_default();
+        let _ = result_sender.send(result);
     }
 
-    pub(crate) fn fire_set_breakpoint(
+    #[allow(unsafe_code)]
+    pub(crate) fn set_breakpoint(
         &self,
         cx: &mut JSContext,
         spidermonkey_id: u32,
         script_id: u32,
         offset: u32,
     ) {
-        let event = DomRoot::upcast::<Event>(DebuggerSetBreakpointEvent::new(
-            self.upcast(),
-            spidermonkey_id,
-            script_id,
-            offset,
-            CanGc::from_cx(cx),
-        ));
-        assert!(
-            event.fire(self.upcast(), CanGc::from_cx(cx)),
-            "Guaranteed by DebuggerSetBreakpointEvent::new"
-        );
+        let mut realm = enter_auto_realm(cx, self);
+        let cx = &mut realm.current_realm();
+        let global_obj = self.global_scope.reflector().get_jsobject();
+
+        rooted!(&in(cx) let mut rval = UndefinedValue());
+        rooted_vec!(let mut argv);
+        argv.push(UInt32Value(spidermonkey_id));
+        argv.push(UInt32Value(script_id));
+        argv.push(UInt32Value(offset));
+        let args = HandleValueArray::from(&argv);
+
+        unsafe {
+            JS_CallFunctionName(
+                cx.raw_cx(),
+                global_obj.into(),
+                c"setBreakpoint".as_ptr(),
+                &args,
+                rval.handle_mut().into(),
+            );
+        }
     }
 
     pub(crate) fn fire_interrupt(&self, cx: &mut js::context::JSContext) {
@@ -457,30 +473,6 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         } else {
             debug!("Not creating debuggee for script with no `introductionType`");
         }
-    }
-
-    fn GetPossibleBreakpointsResult(
-        &self,
-        event: &DebuggerGetPossibleBreakpointsEvent,
-        result: Vec<RecommendedBreakpointLocation>,
-    ) {
-        info!("GetPossibleBreakpointsResult: {event:?} {result:?}");
-        let sender = self
-            .get_possible_breakpoints_result_sender
-            .take()
-            .expect("Guaranteed by Self::fire_get_possible_breakpoints()");
-        let _ = sender.send(
-            result
-                .into_iter()
-                .map(|entry| devtools_traits::RecommendedBreakpointLocation {
-                    script_id: entry.scriptId,
-                    offset: entry.offset,
-                    line_number: entry.lineNumber,
-                    column_number: entry.columnNumber,
-                    is_step_start: entry.isStepStart,
-                })
-                .collect(),
-        );
     }
 
     /// Handle the result from debugger.js executeInGlobal() call.

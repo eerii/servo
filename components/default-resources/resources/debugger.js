@@ -294,8 +294,7 @@ addEventListener("eval", event => {
     evalResult(event, resultValue);
 });
 
-addEventListener("getPossibleBreakpoints", event => {
-    const {spidermonkeyId} = event;
+function getPossibleBreakpoints(spidermonkeyId) {
     const script = sourceIdsToScripts.get(spidermonkeyId);
     const result = [];
     walkScriptTree(script, (currentScript) => {
@@ -304,8 +303,8 @@ addEventListener("getPossibleBreakpoints", event => {
             result.push(location);
         }
     });
-    getPossibleBreakpointsResult(event, result);
-});
+    return result;
+}
 
 function createFrameActor(frame, pipelineId) {
     let frameActorId = findKeyByValue(frameActorsToFrames, frame);
@@ -406,8 +405,7 @@ function handleListFrames(pipelineId, start, count) {
     return frames;
 }
 
-addEventListener("setBreakpoint", event => {
-    const {spidermonkeyId, scriptId, offset} = event;
+function setBreakpoint(spidermonkeyId, scriptId, offset) {
     const script = sourceIdsToScripts.get(spidermonkeyId);
     const target = findScriptById(script, scriptId);
     if (target) {
@@ -417,7 +415,7 @@ addEventListener("setBreakpoint", event => {
             hit: (frame) => handlePauseAndRespond(frame, {type_: "breakpoint"})
         });
     }
-});
+}
 
 // <https://firefox-source-docs.mozilla.org/devtools-user/debugger-api/debugger.frame/index.html>
 addEventListener("interrupt", event => {
