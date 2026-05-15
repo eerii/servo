@@ -248,6 +248,10 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             thread_actor = attach_thread(devtools)
             source_actor = wait_for_source(devtools, "debugger/loop.html")
 
+            # Verify source content has a content type
+            source_reply = devtools.client.send_receive({"to": source_actor, "type": "source"})
+            self.assertEqual(source_reply.get("contentType"), "text/html")
+
             # Get valid breakpoint position
             positions = devtools.client.send_receive(
                 {"to": source_actor, "type": "getBreakpointPositionsCompressed"}

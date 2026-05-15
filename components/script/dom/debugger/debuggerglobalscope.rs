@@ -436,13 +436,26 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
 
             let worker_id = args.workerId.as_ref().map(|id| id.parse().unwrap());
 
+            // Determine content type from URL extension.
+            // TODO: Is there a way of getting this from servo / firefox? There is ContentType.
+            let content_type = if url.as_str().ends_with(".html") || url.as_str().ends_with(".htm")
+            {
+                Some("text/html".to_owned())
+            } else if url.as_str().ends_with(".js") || url.as_str().ends_with(".mjs") {
+                Some("text/javascript".to_owned())
+            } else if url.as_str().ends_with(".css") {
+                Some("text/css".to_owned())
+            } else {
+                None
+            };
+
             let source_info = SourceInfo {
                 url,
                 introduction_type: introduction_type.str().to_owned(),
                 inline,
                 worker_id,
                 content: (!inline).then(|| args.text.to_string()),
-                content_type: None, // TODO
+                content_type,
                 spidermonkey_id: args.spidermonkeyId,
             };
             if let Err(error) = devtools_chan.send(ScriptToDevtoolsControlMsg::CreateSourceActor(
