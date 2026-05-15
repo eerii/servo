@@ -61,7 +61,7 @@ impl Console {
                 level,
                 filename: caller.filename,
                 line_number: caller.line,
-                column_number: caller.col,
+                column_number: caller.col + 1,
                 time_stamp: get_time_stamp(),
             },
             arguments,
