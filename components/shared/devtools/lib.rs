@@ -654,6 +654,7 @@ pub struct EventListenerInfo {
 pub struct PauseReason {
     #[serde(rename = "type")]
     pub type_: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub on_next: Option<bool>,
 }
 
