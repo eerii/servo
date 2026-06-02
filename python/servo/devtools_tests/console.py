@@ -14,7 +14,7 @@ from .utils import DevtoolsTestCase
 
 class ConsoleTests(DevtoolsTestCase):
     def test_console_log_object_with_object_preview(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/console/log_object.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/log_object.html")
 
         result = self.evaluate_and_capture_console_log_output("log_object();")["arguments"][0]
 
@@ -113,7 +113,7 @@ class ConsoleTests(DevtoolsTestCase):
     def test_console_actor_can_handle_self_referential_objects(self):
         self.run_servoshell(url="data:text/html,")
 
-        js = open(self.get_test_path("console/log_object_containing_itself.js")).read()
+        js = open(self.get_test_path("assets/log_object_containing_itself.js")).read()
         self.evaluate_and_capture_console_log_output(js)
 
         # We don't run any assertions on the result because we don't implement these circular references

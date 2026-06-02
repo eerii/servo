@@ -17,12 +17,12 @@ from .utils import Devtools, DevtoolsTestCase
 
 class NetworkTests(DevtoolsTestCase):
     def test_navigation(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/tab/page1.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/tab/page1.html")
         with Devtools.connect() as devtools:
             for message_data, target_path in [
-                ({"type": "navigateTo", "url": f"{self.base_urls[0]}/tab/page2.html"}, "/tab/page2.html"),
-                ({"type": "goBack"}, "/tab/page1.html"),
-                ({"type": "goForward"}, "/tab/page2.html"),
+                ({"type": "navigateTo", "url": f"{self.base_urls[0]}/assets/tab/page2.html"}, "/assets/tab/page2.html"),
+                ({"type": "goBack"}, "/assets/tab/page1.html"),
+                ({"type": "goForward"}, "/assets/tab/page2.html"),
             ]:
                 done = Future()
 
@@ -40,7 +40,7 @@ class NetworkTests(DevtoolsTestCase):
                 done.result(1)
 
     def test_stylesheet_inline(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/stylesheets/inline_style.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/inline_style.html")
         with Devtools.connect() as devtools:
             done = Future()
             stylesheets_data = []
@@ -67,7 +67,7 @@ class NetworkTests(DevtoolsTestCase):
             self.assertFalse(inline_sheet["disabled"])
 
     def test_stylesheet_linked(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/stylesheets/linked_style.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/linked_style/test.html")
         with Devtools.connect() as devtools:
             done = Future()
             stylesheets_data = []
@@ -88,13 +88,13 @@ class NetworkTests(DevtoolsTestCase):
 
             # Linked sheets have linked css as href.
             linked_sheet = stylesheets_data[0]
-            self.assertEqual(f"{self.base_urls[0]}/stylesheets/styles.css", linked_sheet["href"])
+            self.assertEqual(f"{self.base_urls[0]}/assets/linked_style/styles.css", linked_sheet["href"])
             self.assertFalse(linked_sheet["system"])
             self.assertEqual(linked_sheet["ruleCount"], 1)
             self.assertFalse(linked_sheet["disabled"])
 
     def test_stylesheet_content(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/stylesheets/linked_style.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/linked_style/test.html")
         with Devtools.connect() as devtools:
             founded_resources = []
             done = Future()

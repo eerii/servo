@@ -22,7 +22,7 @@ from .utils import Devtools, DevtoolsTestCase
 
 class InspectorTests(DevtoolsTestCase):
     def test_inspector_event_listeners(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/event_listeners.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/event_listeners.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -37,7 +37,7 @@ class InspectorTests(DevtoolsTestCase):
             self.assert_event_listeners(div, None, devtools)
 
     def test_inspector_attribute_modifications_affect_dom(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/demo_dom.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -75,7 +75,7 @@ class InspectorTests(DevtoolsTestCase):
             self.assertEquals(walker.children(body)[0]["attrs"], [{"name": "foo", "value": "baz"}])
 
     def test_inspector_notices_attribute_mutation_from_javascript(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/demo_dom.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -114,7 +114,7 @@ class InspectorTests(DevtoolsTestCase):
             )
 
     def test_inspector_doesnt_crash_when_attribute_on_element_it_doesnt_know_about_is_mutated(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/demo_dom.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -151,7 +151,7 @@ class InspectorTests(DevtoolsTestCase):
         # pipelines and script threads. It does not exercise the full exchange of messages required
         # for the Firefox toolbox to successfully refresh its inspector panel.
 
-        self.run_servoshell(url=f"{self.base_urls[0]}/tab/page1.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/assets/tab/page1.html")
         with Devtools.connect() as devtools:
             target_destroyed = Future()
             target_available = Future()
@@ -161,7 +161,7 @@ class InspectorTests(DevtoolsTestCase):
 
             def on_target_available(data):
                 target = data.get("target", {})
-                if target.get("url", "").endswith("/tab/page2.html"):
+                if target.get("url", "").endswith("/assets/tab/page2.html"):
                     target_available.set_result(target)
 
             devtools.client.add_event_listener(
@@ -179,7 +179,7 @@ class InspectorTests(DevtoolsTestCase):
                     "to": devtools.tab.actor_id,
                     "type": "navigateTo",
                     # Use a different base URL to test walker across script threads.
-                    "url": f"{self.base_urls[1]}/tab/page2.html",
+                    "url": f"{self.base_urls[1]}/assets/tab/page2.html",
                 },
             )
             target_destroyed.result(1)
