@@ -424,15 +424,18 @@ class MachCommands(CommandBase):
     @CommandBase.common_command_arguments(binary_selection=True)
     def test_devtools(self, servo_binary: str, test_names: list[str], num_threads: str, **kwargs: Any) -> int:
         import pytest
+        import geckordp.tests as tests
 
         args = [
             os.path.join(SCRIPT_PATH, "devtools_tests"),
+            tests.__path__[0],
             "--servo-binary",
             servo_binary,
             "--script-path",
             SCRIPT_PATH,
             "-n",
             num_threads,
+            "--browser=external",
             "-v",
         ]
         if test_names:

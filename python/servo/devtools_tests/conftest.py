@@ -24,6 +24,37 @@ from . import utils
 WAIT_BETWEEN_ATTEMPTS = 1 / 8  # seconds
 CONNECTION_TIMEOUT = 5  # seconds
 
+
+class _ExpectedFailuresPlugin:
+    def __init__(self, patterns):
+        self._patterns = patterns
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            for pattern in self._patterns:
+                if pattern in item.nodeid:
+                    item.add_marker(
+                        pytest.mark.xfail(reason=f"Expected failure: {pattern}")
+                    )
+                    break
+
+
+def pytest_configure(config):
+    failures_file = os.path.join(os.path.dirname(__file__), "expected_failures.txt")
+    if not os.path.exists(failures_file):
+        return
+    patterns = []
+    with open(failures_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                patterns.append(line)
+    if patterns:
+        config.pluginmanager.register(
+            _ExpectedFailuresPlugin(patterns), name="expected-failures"
+        )
+
 web_servers = []
 web_server_threads = []
 
@@ -31,6 +62,8 @@ web_server_threads = []
 def pytest_addoption(parser):
     parser.addoption("--servo-binary", help="Path to the servoshell binary")
     parser.addoption("--script-path", help="Path to the servo python library")
+
+
 
 
 def pytest_sessionstart(session: pytest.Session):
@@ -80,6 +113,73 @@ def devtools_port(worker_id):
     utils.DEVTOOLS_PORT = port
 
     return port
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _start_servoshell_for_geckordp(request, servo_binary, worker_id):
+    try:
+        browser = request.config.getoption("--browser")
+        base_port = request.config.getoption("--remote-port")
+    except (ValueError, AttributeError):
+        yield
+        return
+
+    if browser != "external":
+        yield
+        return
+
+    is_xdist_controller = (
+        request.config.pluginmanager.hasplugin("xdist")
+        and not hasattr(request.config, "workerinput")
+    )
+    if is_xdist_controller:
+        yield
+        return
+
+    if worker_id == "master":
+        port = base_port
+    else:
+        worker_num = int(worker_id.replace("gw", ""))
+        port = base_port + worker_num
+
+    import geckordp.tests.helpers.constants as geckordp_constants
+
+    geckordp_constants.REMOTE_PORT = port
+
+    env = os.environ.copy()
+    env["RUST_LOG"] = "error,devtools=warn"
+    process = subprocess.Popen(
+        [servo_binary, "--headless", f"--devtools={port}", "servo:newtab"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    for _ in range(40):
+        try:
+            with socket.create_connection(("127.0.0.1", port)):
+                time.sleep(0.25)
+                break
+        except Exception:
+            time.sleep(1 / 8)
+    else:
+        process.terminate()
+        try:
+            process.wait(5)
+        except Exception:
+            process.kill()
+        raise TimeoutError(f"Couldn't connect to servoshell on port {port}")
+
+    yield
+
+    process.terminate()
+    try:
+        process.wait(timeout=CONNECTION_TIMEOUT)
+    except TimeoutExpired:
+        print(
+            "Warning: servoshell for geckordp did not terminate", file=sys.stderr
+        )
+        process.kill()
 
 
 @pytest.fixture(scope="session")
