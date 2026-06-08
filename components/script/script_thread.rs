@@ -2313,6 +2313,12 @@ impl ScriptThread {
                 self.debugger_global
                     .fire_unblackbox(cx, spidermonkey_id, coverage);
             },
+            DevtoolScriptControlMsg::SetPauseOnExceptions {
+                pause_on_exceptions,
+            } => {
+                self.debugger_global
+                    .fire_set_pause_on_exceptions(cx, pause_on_exceptions);
+            },
         }
     }
 

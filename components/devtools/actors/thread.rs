@@ -115,9 +115,19 @@ pub(crate) struct ThreadActor {
     script_sender: GenericSender<DevtoolScriptControlMsg>,
     pub frames: AtomicRefCell<HashSet<String>>,
     browsing_context_name: Option<String>,
+    pause_on_exceptions: AtomicRefCell<bool>,
 }
 
 impl ThreadActor {
+    pub(crate) fn set_pause_on_exceptions(&self, pause: bool) {
+        *self.pause_on_exceptions.borrow_mut() = pause;
+        let _ = self
+            .script_sender
+            .send(DevtoolScriptControlMsg::SetPauseOnExceptions {
+                pause_on_exceptions: pause,
+            });
+    }
+
     pub fn register(
         registry: &ActorRegistry,
         script_sender: GenericSender<DevtoolScriptControlMsg>,
@@ -130,6 +140,7 @@ impl ThreadActor {
             script_sender,
             frames: Default::default(),
             browsing_context_name,
+            pause_on_exceptions: false.into(),
         };
         registry.register::<Self>(actor)
     }
@@ -200,9 +211,27 @@ impl Actor for ThreadActor {
                 })?
             },
 
-            "reconfigure" => request.reply_final(&EmptyReplyMsg {
-                from: self.name().into(),
-            })?,
+            "pauseOnExceptions" => {
+                let pause: bool = msg
+                    .get("pauseOnExceptions")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.set_pause_on_exceptions(pause);
+                request.reply_final(&EmptyReplyMsg {
+                    from: self.name().into(),
+                })?
+            },
+
+            "reconfigure" => {
+                if let Some(options) = msg.get("options").and_then(Value::as_object) {
+                    if let Some(pause) = options.get("pauseOnExceptions").and_then(Value::as_bool) {
+                        self.set_pause_on_exceptions(pause);
+                    }
+                }
+                request.reply_final(&EmptyReplyMsg {
+                    from: self.name().into(),
+                })?
+            },
 
             "getAvailableEventBreakpoints" => {
                 // TODO: Send list of available event breakpoints (animation, clipboard, load...)

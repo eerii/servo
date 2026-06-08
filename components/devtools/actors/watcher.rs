@@ -479,7 +479,8 @@ impl WatcherActor {
     ) -> Arc<Self> {
         let network_parent_actor = NetworkParentActor::register(registry);
         let target_configuration_actor = TargetConfigurationActor::register(registry);
-        let thread_configuration_actor = ThreadConfigurationActor::register(registry);
+        let thread_configuration_actor =
+            ThreadConfigurationActor::register(registry, browsing_context_name.clone());
         let breakpoint_list_actor =
             BreakpointListActor::register(registry, browsing_context_name.clone());
         let blackboxing_actor = BlackboxingActor::register(registry, browsing_context_name.clone());

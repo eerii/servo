@@ -13,12 +13,14 @@ const blackboxing = new Map;
 let suspendedFrame = null;
 let lastPauseLocation = null;
 let debuggerPaused = false;
+const handledFrameExceptions = new WeakMap();
 
 // <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#155>
 // Possible values for the `why.type` attribute in "paused" event
 const PAUSE_REASONS = {
   INTERRUPTED: "interrupted", // Associated with why.onNext attribute
   RESUME_LIMIT: "resumeLimit",
+  EXCEPTION: "exception",
 };
 
 // Find script by scriptId within a script tree
@@ -455,6 +457,26 @@ addEventListener("interrupt", event => {
         { type_: PAUSE_REASONS.INTERRUPTED, onNext: true }
     );
 });
+
+addEventListener("setPauseOnExceptions", event => {
+    const { pauseOnExceptions } = event;
+    dbg.onExceptionUnwind = pauseOnExceptions ? onExceptionUnwind : undefined;
+});
+
+// <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#2005>
+function onExceptionUnwind(youngestFrame, value) {
+    if (debuggerPaused || handledFrameExceptions.get(youngestFrame) === value) {
+        return undefined;
+    }
+
+    // The same throw shouldn't trigger additional pauses as the stack unwinds
+    for (let frame = youngestFrame.older; frame != null; frame = frame.older) {
+        handledFrameExceptions.set(frame, value);
+    }
+
+    handlePauseAndRespond(youngestFrame, { type_: PAUSE_REASONS.EXCEPTION });
+    return undefined;
+}
 
 // <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#1088>
 function hasMoved(frame) {

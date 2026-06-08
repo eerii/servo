@@ -472,6 +472,9 @@ pub enum DevtoolScriptControlMsg {
     GetEnvironment(String, GenericSender<String>),
     Blackbox(u32, BlackboxCoverage),
     Unblackbox(u32, BlackboxCoverage),
+    SetPauseOnExceptions {
+        pause_on_exceptions: bool,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]

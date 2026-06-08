@@ -12,12 +12,15 @@ use malloc_size_of_derive::MallocSizeOf;
 use serde_json::{Map, Value};
 
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry, new_actor_name};
+use crate::actors::browsing_context::BrowsingContextActor;
+use crate::actors::thread::ThreadActor;
 use crate::protocol::ClientRequest;
 use crate::{ActorMsg, EmptyReplyMsg, StreamId};
 
 #[derive(MallocSizeOf)]
 pub(crate) struct ThreadConfigurationActor {
     name: String,
+    browsing_context_name: String,
     _configuration: HashMap<&'static str, bool>,
 }
 
@@ -32,14 +35,25 @@ impl Actor for ThreadConfigurationActor {
     fn handle_message(
         &self,
         request: ClientRequest,
-        _registry: &ActorRegistry,
+        registry: &ActorRegistry,
         msg_type: &str,
-        _msg: &Map<String, Value>,
+        msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
         match msg_type {
             "updateConfiguration" => {
-                // TODO: Actually update configuration
+                if let Some(pause) = msg
+                    .get("configuration")
+                    .and_then(Value::as_object)
+                    .and_then(|obj| obj.get("pauseOnExceptions"))
+                    .and_then(Value::as_bool)
+                {
+                    let browsing_context_actor =
+                        registry.find::<BrowsingContextActor>(&self.browsing_context_name);
+                    let thread_actor =
+                        registry.find::<ThreadActor>(&browsing_context_actor.thread_name);
+                    thread_actor.set_pause_on_exceptions(pause);
+                }
                 let msg = EmptyReplyMsg {
                     from: self.name().into(),
                 };
@@ -52,10 +66,11 @@ impl Actor for ThreadConfigurationActor {
 }
 
 impl ThreadConfigurationActor {
-    pub fn register(registry: &ActorRegistry) -> Arc<Self> {
+    pub fn register(registry: &ActorRegistry, browsing_context_name: String) -> Arc<Self> {
         let name = new_actor_name::<Self>();
         let actor = Self {
             name,
+            browsing_context_name,
             _configuration: HashMap::new(),
         };
         registry.register::<Self>(actor)

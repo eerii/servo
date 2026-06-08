@@ -43,6 +43,7 @@ use crate::dom::debugger::debuggergetenvironmentevent::DebuggerGetEnvironmentEve
 use crate::dom::debugger::debuggerinterruptevent::DebuggerInterruptEvent;
 use crate::dom::debugger::debuggerresumeevent::DebuggerResumeEvent;
 use crate::dom::debugger::debuggersetbreakpointevent::DebuggerSetBreakpointEvent;
+use crate::dom::debugger::debuggersetpauseonexceptionsevent::DebuggerSetPauseOnExceptionsEvent;
 use crate::dom::debugger::debuggerunblackboxevent::DebuggerUnblackboxEvent;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::types::{
@@ -264,6 +265,22 @@ impl DebuggerGlobalScope {
         assert!(
             event.fire(cx, self.upcast()),
             "Guaranteed by DebuggerInterruptEvent::new"
+        );
+    }
+
+    pub(crate) fn fire_set_pause_on_exceptions(
+        &self,
+        cx: &mut js::context::JSContext,
+        pause_on_exceptions: bool,
+    ) {
+        let event = DomRoot::upcast::<Event>(DebuggerSetPauseOnExceptionsEvent::new(
+            self.upcast(),
+            pause_on_exceptions,
+            CanGc::from_cx(cx),
+        ));
+        assert!(
+            event.fire(cx, self.upcast()),
+            "Guaranteed by DebuggerSetPauseOnExceptionsEvent::new"
         );
     }
 
