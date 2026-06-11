@@ -24,3 +24,6 @@ class TestConnection:
 
             selected_tabs = [tab for tab in tabs if tab.get("selected")]
             assert len(selected_tabs) == 1
+
+    def test_true(self):
+        assert True
