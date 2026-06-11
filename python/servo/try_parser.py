@@ -38,6 +38,7 @@ class JobConfig(object):
     wpt: bool = False
     profile: str = "checked-release"
     unit_tests: bool = False
+    devtools_tests: bool = False
     build_libservo: bool = False
     bencher: bool = False
     coverage: bool = False
@@ -57,6 +58,7 @@ class JobConfig(object):
 
         self.wpt |= other.wpt
         self.unit_tests |= other.unit_tests
+        self.devtools_tests |= other.devtools_tests
         self.build_libservo |= other.build_libservo
         self.bencher |= other.bencher
         self.coverage |= other.coverage
@@ -82,6 +84,8 @@ class JobConfig(object):
             modifier.append(self.profile.title())
         if self.unit_tests:
             modifier.append("Unit Tests")
+        if self.devtools_tests:
+            modifier.append("Devtools Tests")
         if self.build_libservo:
             modifier.append("Build libservo")
         if self.wpt:
@@ -154,6 +158,8 @@ def handle_modifier(config: Optional[JobConfig], s: str) -> Optional[JobConfig]:
     s = s.lower()
     if "unit-tests" in s:
         config.unit_tests = True
+    if "devtools" in s:
+        config.devtools_tests = True
     if "build-libservo" in s:
         config.build_libservo = True
     if "production" in s:
@@ -278,6 +284,7 @@ class TestParser(unittest.TestCase):
                         "number_of_wpt_chunks": 20,
                         "profile": "checked-release",
                         "unit_tests": True,
+                        "devtools_tests": False,
                         "build_libservo": False,
                         "workflow": "linux",
                         "wpt": False,
@@ -301,6 +308,7 @@ class TestParser(unittest.TestCase):
                         "wpt": True,
                         "profile": "checked-release",
                         "unit_tests": True,
+                        "devtools_tests": False,
                         "build_libservo": True,
                         "bencher": True,
                         "build_args": "",
@@ -314,6 +322,7 @@ class TestParser(unittest.TestCase):
                         "wpt": False,
                         "profile": "checked-release",
                         "unit_tests": True,
+                        "devtools_tests": False,
                         "build_libservo": True,
                         "bencher": False,
                         "build_args": "",
@@ -327,6 +336,7 @@ class TestParser(unittest.TestCase):
                         "wpt": False,
                         "profile": "checked-release",
                         "unit_tests": True,
+                        "devtools_tests": False,
                         "build_libservo": False,
                         "bencher": False,
                         "build_args": "",
@@ -340,6 +350,7 @@ class TestParser(unittest.TestCase):
                         "wpt": False,
                         "profile": "checked-release",
                         "unit_tests": False,
+                        "devtools_tests": False,
                         "build_libservo": False,
                         "bencher": False,
                         "build_args": "",
@@ -353,6 +364,7 @@ class TestParser(unittest.TestCase):
                         "wpt": False,
                         "profile": "checked-release",
                         "unit_tests": False,
+                        "devtools_tests": False,
                         "build_libservo": False,
                         "bencher": False,
                         "build_args": "",
@@ -366,6 +378,7 @@ class TestParser(unittest.TestCase):
                         "wpt": False,
                         "profile": "checked-release",
                         "unit_tests": False,
+                        "devtools_tests": False,
                         "build_libservo": False,
                         "bencher": False,
                         "build_args": "",
@@ -388,6 +401,7 @@ class TestParser(unittest.TestCase):
                         "name": "Linux (WPT)",
                         "number_of_wpt_chunks": 20,
                         "profile": "checked-release",
+                        "devtools_tests": False,
                         "unit_tests": False,
                         "build_libservo": False,
                         "workflow": "linux",
@@ -439,6 +453,15 @@ class TestParser(unittest.TestCase):
 
     def test_wpt_alias(self) -> None:
         self.assertDictEqual(json.loads(Config("wpt").to_json()), json.loads(Config("linux-wpt").to_json()))
+
+    def test_devtools_tests(self) -> None:
+        matrix_result = json.loads(Config("linux-devtools").to_json())["matrix"][0]
+
+        self.assertEqual(matrix_result["name"], "Linux (Devtools Tests)")
+        self.assertEqual(matrix_result["workflow"], "linux")
+        self.assertTrue(matrix_result["devtools_tests"])
+        self.assertFalse(matrix_result["unit_tests"])
+        self.assertFalse(matrix_result["wpt"])
 
 
 def run_tests() -> bool:
