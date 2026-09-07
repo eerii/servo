@@ -892,7 +892,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "miniz_oxide",
- "object",
+ "object 0.37.3",
  "rustc-demangle",
  "windows-link",
 ]
@@ -3852,6 +3852,7 @@ dependencies = [
  "glib-sys",
  "gobject-sys",
  "libc",
+ "object 0.40.0",
  "system-deps",
  "system-deps-meta",
 ]
@@ -6593,6 +6594,15 @@ name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "object"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
 dependencies = [
  "memchr",
 ]
@@ -10362,6 +10372,7 @@ dependencies = [
  "servo-webdriver-server",
  "signal-hook-registry",
  "surfman",
+ "system-deps",
  "tokio",
  "tracing",
  "tracing-perfetto",

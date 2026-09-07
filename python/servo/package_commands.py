@@ -455,6 +455,9 @@ class PackageCommands(CommandBase):
             dir_to_resources = path.join(dir_to_temp, "resources")
             copy_packaged_resources(dir_to_root, dir_to_resources)
             shutil.copy(binary_path, dir_to_temp)
+            gstreamer_dir = path.join(target_dir, "gstreamer")
+            if path.exists(gstreamer_dir):
+                shutil.copytree(gstreamer_dir, path.join(dir_to_temp, "gstreamer"))
 
             print("Creating tarball")
             tar_path = path.join(target_dir, "servo-tech-demo.tar.gz")

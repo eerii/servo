@@ -28,6 +28,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)', 'cfg(llvm_pgo)
 # since build-scripts can't detect the Cargo target OS at build-time, we
 # must unconditionally add these dependencies. See https://github.com/rust-lang/cargo/issues/4932
 [build-dependencies]
+system-deps = { version = "9", features = ["binary", "xz"], optional = true }
 # macOS only
 cc = { workspace = true }
 
@@ -63,7 +64,7 @@ js_backtrace = ["servo/js_backtrace"]
 js_jit = ["servo/js_jit"]
 max_log_level = ["log/release_max_level_info"]
 media-gstreamer = ["servo/media-gstreamer"]
-media-gstreamer-binary = ["servo/media-gstreamer-binary"]
+media-gstreamer-binary = ["servo/media-gstreamer-binary", "dep:system-deps"]
 native-bluetooth = ["servo/native-bluetooth"]
 profilemozjs = ["servo/profilemozjs"]
 tracing = ["dep:tracing", "dep:tracing-subscriber", "servo/tracing"]

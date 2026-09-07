@@ -93,6 +93,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/lib/");
     }
 
+    // Link against the bundle's shared libraries and load them from the
+    // `gstreamer` directory that gstreamer-sys creates. Only does something
+    // when dynamic linking is enabled.
+    #[cfg(feature = "media-gstreamer-binary")]
+    system_deps::Config::new().print_binary_link_args("gstreamer_1_0", "gstreamer/lib");
+
     // On OpenHarmony, libservoshell.so is loaded by ArkTS as a NAPI module.
     // Passing a version script allows us to inform the linker about required
     // symbol visibility (only one), which improves stripping of unused sections.
