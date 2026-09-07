@@ -86,11 +86,14 @@ stdenv.mkDerivation (androidEnvironment // {
     libxcb
     libx11
 
-    gst_all_1.gstreamer
-    gst_all_1.gst-plugins-base
-    gst_all_1.gst-plugins-good
-    gst_all_1.gst-plugins-bad
-    gst_all_1.gst-plugins-ugly
+    wayland
+    wayland-protocols
+    openssl
+    xorg.libXau
+    xorg.libXdmcp
+    libGL
+    alsa-lib
+    libpulseaudio
 
     rustup
     taplo
@@ -147,6 +150,8 @@ stdenv.mkDerivation (androidEnvironment // {
   LD_LIBRARY_PATH = lib.makeLibraryPath [
     # Fixes missing library errors
     wayland libxcursor libxrandr libxi libxkbcommon
+    libxcb libx11 xorg.libXext
+    alsa-lib libpulseaudio openssl
 
     # [WARN  script::dom::gpu] Could not get GPUAdapter ("NotFound")
     # TLA Err: Error: Couldn't request WebGPU adapter.
