@@ -3602,7 +3602,6 @@ dependencies = [
 [[package]]
 name = "gstreamer"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "cfg-if",
  "futures-channel",
@@ -3626,7 +3625,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-app"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -3640,7 +3638,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-app-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gstreamer-base-sys",
@@ -3652,7 +3649,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-audio"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "cfg-if",
  "glib",
@@ -3666,7 +3662,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-audio-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gobject-sys",
@@ -3679,7 +3674,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-base"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "atomic_refcell",
  "cfg-if",
@@ -3692,7 +3686,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-base-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gobject-sys",
@@ -3704,7 +3697,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3717,7 +3709,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-egl"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3729,7 +3720,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-egl-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gstreamer-gl-sys",
@@ -3740,7 +3730,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gobject-sys",
@@ -3754,7 +3743,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-wayland"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3766,7 +3754,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-wayland-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gstreamer-gl-sys",
@@ -3777,7 +3764,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-x11"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3789,7 +3775,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-gl-x11-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gstreamer-gl-sys",
@@ -3800,7 +3785,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-play"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3812,7 +3796,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-play-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gobject-sys",
@@ -3825,7 +3808,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-sdp"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3835,7 +3817,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-sdp-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gstreamer-sys",
@@ -3846,7 +3827,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "cfg-if",
  "glib-sys",
@@ -3860,7 +3840,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-video"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "cfg-if",
  "futures-channel",
@@ -3875,7 +3854,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-video-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gobject-sys",
@@ -3888,7 +3866,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-webrtc"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib",
  "gstreamer",
@@ -3900,7 +3877,6 @@ dependencies = [
 [[package]]
 name = "gstreamer-webrtc-sys"
 version = "0.26.0-alpha"
-source = "git+https://gitlab.freedesktop.org/calvaris/gstreamer-rs.git?branch=binaries#4d4b48b399868933b8dcac546820ad8de15d3b1b"
 dependencies = [
  "glib-sys",
  "gstreamer-sdp-sys",
@@ -11152,8 +11128,6 @@ dependencies = [
 [[package]]
 name = "system-deps"
 version = "9.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0dae2cbca1f0ff93795713cfe0a4c02f760e3c0b8ae2ab4ec4045808ff429f"
 dependencies = [
  "cfg-expr",
  "heck 0.5.0",
@@ -11167,8 +11141,6 @@ dependencies = [
 [[package]]
 name = "system-deps-meta"
 version = "9.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef7539e6aad91b1bed992b9b3d6e92540ca2b760376b2bfff657fa2bb95200fc"
 dependencies = [
  "attohttpc",
  "cargo_metadata",
